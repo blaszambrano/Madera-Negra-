@@ -136,6 +136,8 @@
       <button data-tab="pedidos">Pedidos por mesa</button>
       <button data-tab="precios">Precios y promos</button>
       <button data-tab="clientes">Clientes</button>
+      <button data-tab="mesas">Mesas</button>
+      <button data-tab="embajadoras">Embajadoras</button>
     </nav>
 
     <section class="panel active" id="panel-reservas">
@@ -210,6 +212,38 @@
         <table>
           <thead><tr><th>Nombre</th><th>Teléfono</th><th>Visitas</th><th>Recompensa</th></tr></thead>
           <tbody id="clientes-body"><tr><td colspan="4" class="empty">Cargando…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-mesas">
+      <div class="section-head">
+        <div><h2>Plano de mesas</h2><p>Tocá una mesa para rotar su estado: Disponible → Reservada → Ocupada → Disponible.</p></div>
+        <div style="display:flex; gap:14px; font-size:12px; color:var(--text-dim);">
+          <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#7C8A5E; margin-right:5px;"></span>Disponible</span>
+          <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#C68A4C; margin-right:5px;"></span>Reservada</span>
+          <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#C97878; margin-right:5px;"></span>Ocupada</span>
+        </div>
+      </div>
+      <div id="mesas-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(90px, 1fr)); gap:12px;">
+        <p class="empty">Cargando…</p>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-embajadoras">
+      <div class="section-head">
+        <div><h2>Embajadoras</h2><p>Escaneos totales vs. gente que realmente reservó o pidió después de escanear.</p></div>
+      </div>
+
+      <div class="add-form" style="margin-bottom:24px;">
+        <input type="text" id="nueva-embajadora" placeholder="Nombre de la embajadora">
+        <button class="btn-primary" id="agregar-embajadora" style="padding:9px 16px;">+ Agregar embajadora</button>
+      </div>
+
+      <div class="tabla-wrap">
+        <table>
+          <thead><tr><th>Embajadora</th><th>Link de su QR</th><th>Escaneos totales</th><th>Reservaron / pidieron</th><th></th></tr></thead>
+          <tbody id="embajadoras-body"><tr><td colspan="5" class="empty">Cargando…</td></tr></tbody>
         </table>
       </div>
     </section>
@@ -327,6 +361,24 @@
     if (!res.ok) throw new Error(`Supabase respondió ${res.status} en ${tabla}`);
   }
 
+  async function sbUpdateMesa(mesa, campos){
+    const res = await fetchAutenticado(`${SUPABASE_URL}/rest/v1/mesas_estado?mesa=eq.${mesa}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+      body: JSON.stringify(campos),
+    });
+    if (res.status === 401) { manejarSesionExpirada(); throw new Error('Sesión expirada'); }
+    if (!res.ok) throw new Error(`Supabase respondió ${res.status} en mesas_estado`);
+  }
+
+  async function sbDeleteEmbajadora(nombre){
+    const res = await fetchAutenticado(`${SUPABASE_URL}/rest/v1/embajadoras?nombre=eq.${encodeURIComponent(nombre)}`, {
+      method: 'DELETE',
+    });
+    if (res.status === 401) { manejarSesionExpirada(); throw new Error('Sesión expirada'); }
+    if (!res.ok) throw new Error(`Supabase respondió ${res.status} en embajadoras`);
+  }
+
   async function sbDelete(tabla, id){
     const res = await fetchAutenticado(`${SUPABASE_URL}/rest/v1/${tabla}?id=eq.${id}`, {
       method: 'DELETE',
@@ -391,6 +443,8 @@
     cargarMenu();
     cargarPromos();
     cargarClientes();
+    cargarMesas();
+    cargarEmbajadoras();
     suscribirRealtime();
   }
 
@@ -404,6 +458,8 @@
       btn.classList.add('active');
       document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
       if (btn.dataset.tab === 'clientes') cargarClientes();
+      if (btn.dataset.tab === 'mesas') cargarMesas();
+      if (btn.dataset.tab === 'embajadoras') cargarEmbajadoras();
     });
   });
 
@@ -572,6 +628,122 @@
       });
     });
   }
+
+  // ---------- PLANO DE MESAS ----------
+  const ORDEN_ESTADOS = ['disponible', 'reservada', 'ocupada'];
+  const ESTILO_ESTADO = {
+    disponible: { bg: 'rgba(124,138,94,0.16)', fg: '#9CAE7C', borde: '#7C8A5E' },
+    reservada:  { bg: 'rgba(198,138,76,0.16)', fg: '#C68A4C', borde: '#C68A4C' },
+    ocupada:    { bg: 'rgba(201,120,120,0.16)', fg: '#C97878', borde: '#C97878' },
+  };
+
+  async function cargarMesas(){
+    const grid = document.getElementById('mesas-grid');
+    let data;
+    try {
+      data = await sbSelect('mesas_estado', 'select=*&order=mesa.asc');
+    } catch (err) {
+      grid.innerHTML = `<p class="empty">Error al cargar (${err.message}).</p>`; return;
+    }
+    if (!data.length) { grid.innerHTML = `<p class="empty">No hay mesas cargadas todavía.</p>`; return; }
+
+    grid.innerHTML = data.map(m => {
+      const est = ESTILO_ESTADO[m.estado] || ESTILO_ESTADO.disponible;
+      return `
+        <button class="mesa-tile" data-mesa="${m.mesa}" data-estado="${m.estado}" style="
+          aspect-ratio:1; border-radius:8px; border:2px solid ${est.borde};
+          background:${est.bg}; color:${est.fg}; cursor:pointer;
+          display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px;
+          font-family:'Archivo',sans-serif; padding:8px;">
+          <span style="font-family:'Fraunces',serif; font-size:1.3rem; font-style:italic; color:var(--text);">${m.mesa}</span>
+          <span style="font-size:10px; text-transform:uppercase; letter-spacing:0.03em;">${m.estado}</span>
+        </button>
+      `;
+    }).join('');
+
+    grid.querySelectorAll('.mesa-tile').forEach(tile => {
+      tile.addEventListener('click', async () => {
+        const mesa = tile.dataset.mesa;
+        const actual = tile.dataset.estado;
+        const siguiente = ORDEN_ESTADOS[(ORDEN_ESTADOS.indexOf(actual) + 1) % ORDEN_ESTADOS.length];
+        tile.disabled = true;
+        try {
+          await sbUpdateMesa(mesa, { estado: siguiente });
+        } catch (err) {
+          alert('No se pudo actualizar la mesa: ' + err.message);
+          tile.disabled = false;
+          return;
+        }
+        cargarMesas();
+      });
+    });
+  }
+
+  // ---------- EMBAJADORAS ----------
+  const SITIO_BASE = window.location.origin;
+
+  async function cargarEmbajadoras(){
+    const body = document.getElementById('embajadoras-body');
+    let data;
+    try {
+      data = await sbSelect('resumen_embajadoras', 'select=*&order=convertidos.desc');
+    } catch (err) {
+      body.innerHTML = `<tr><td colspan="5" class="empty">Error al cargar (${err.message}).</td></tr>`; return;
+    }
+    if (!data.length) { body.innerHTML = `<tr><td colspan="5" class="empty">Todavía no cargaste ninguna embajadora.</td></tr>`; return; }
+
+    body.innerHTML = data.map(e => {
+      const link = `${SITIO_BASE}/embajadora.html?nombre=${encodeURIComponent(e.embajadora)}`;
+      return `
+      <tr>
+        <td>${e.embajadora}</td>
+        <td>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="font-size:12px; color:var(--text-dim); max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${link}</span>
+            <button class="icon-btn copiar-link-btn" data-link="${link}" title="Copiar link">⧉</button>
+          </div>
+        </td>
+        <td>${e.escaneos_totales}</td>
+        <td style="font-family:'Fraunces',serif; font-style:italic; color:var(--copper);">${e.convertidos}</td>
+        <td><button class="icon-btn borrar-embajadora-btn" data-nombre="${e.embajadora}" title="Borrar">✕</button></td>
+      </tr>
+    `;
+    }).join('');
+
+    body.querySelectorAll('.copiar-link-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        navigator.clipboard.writeText(btn.dataset.link).then(() => {
+          btn.textContent = '✓';
+          setTimeout(() => { btn.textContent = '⧉'; }, 1500);
+        }).catch(() => alert('No se pudo copiar. Link: ' + btn.dataset.link));
+      });
+    });
+
+    body.querySelectorAll('.borrar-embajadora-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm(`¿Borrar a "${btn.dataset.nombre}"? (los escaneos ya registrados no se borran)`)) return;
+        try {
+          await sbDeleteEmbajadora(btn.dataset.nombre);
+        } catch (err) {
+          alert('No se pudo borrar: ' + err.message); return;
+        }
+        cargarEmbajadoras();
+      });
+    });
+  }
+
+  document.getElementById('agregar-embajadora').addEventListener('click', async () => {
+    const input = document.getElementById('nueva-embajadora');
+    const nombre = input.value.trim();
+    if (!nombre) { alert('Escribí el nombre de la embajadora.'); return; }
+    try {
+      await sbInsert('embajadoras', { nombre });
+    } catch (err) {
+      alert('No se pudo agregar: ' + err.message); return;
+    }
+    input.value = '';
+    cargarEmbajadoras();
+  });
 
   function cablearFilaEditable(cont){
     cont.querySelectorAll('input').forEach(inp => {
