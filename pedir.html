@@ -197,6 +197,15 @@
 
   const carrito = {}; // id -> { nombre, precio, cantidad }
 
+  function obtenerEmbajadora(){
+    try {
+      const deLocal = localStorage.getItem('mn_embajadora');
+      if (deLocal) return deLocal;
+    } catch (err) {}
+    const match = document.cookie.match(/(?:^|;\s*)mn_embajadora=([^;]+)/);
+    return match ? decodeURIComponent(match[1]) : null;
+  }
+
   function money(n){
     return '$' + Number(n).toLocaleString('es-AR', { maximumFractionDigits: 0 });
   }
@@ -295,7 +304,7 @@
         mesa: mesa,
         items: items,
         total: total,
-        embajadora: localStorage.getItem('mn_embajadora') || null,
+        embajadora: obtenerEmbajadora() || null,
       });
 
       const telefonoPuntos = document.getElementById('telefono-puntos').value.trim();

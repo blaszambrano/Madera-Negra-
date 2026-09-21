@@ -522,6 +522,15 @@
     }
   }
 
+  function obtenerEmbajadora(){
+    try {
+      const deLocal = localStorage.getItem('mn_embajadora');
+      if (deLocal) return deLocal;
+    } catch (err) {}
+    const match = document.cookie.match(/(?:^|;\s*)mn_embajadora=([^;]+)/);
+    return match ? decodeURIComponent(match[1]) : null;
+  }
+
   function money(n){
     return '$' + Number(n).toLocaleString('es-AR', { maximumFractionDigits: 0 });
   }
@@ -595,7 +604,7 @@
         hora: hora,
         personas: Number(personas),
         telefono: telefono,
-        embajadora: localStorage.getItem('mn_embajadora') || null,
+        embajadora: obtenerEmbajadora() || null,
       });
 
       sbRpc('sumar_visita', { p_telefono: telefono, p_nombre: nombre });
