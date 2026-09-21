@@ -595,6 +595,7 @@
         hora: hora,
         personas: Number(personas),
         telefono: telefono,
+        embajadora: localStorage.getItem('mn_embajadora') || null,
       });
 
       sbRpc('sumar_visita', { p_telefono: telefono, p_nombre: nombre });
