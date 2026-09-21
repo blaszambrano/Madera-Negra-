@@ -135,6 +135,7 @@
       <button data-tab="calendario">Calendario</button>
       <button data-tab="pedidos">Pedidos por mesa</button>
       <button data-tab="precios">Precios y promos</button>
+      <button data-tab="clientes">Clientes</button>
     </nav>
 
     <section class="panel active" id="panel-reservas">
@@ -198,6 +199,18 @@
         <input type="text" id="nueva-promo-titulo" placeholder="Título de la promo">
         <input type="text" id="nueva-promo-precio" placeholder="Precio o 2x1">
         <button class="btn-primary" id="agregar-promo" style="padding:9px 16px;">+ Agregar promo</button>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-clientes">
+      <div class="section-head">
+        <div><h2>Clientes y visitas</h2><p>Suman una visita al reservar o al pedir desde la mesa dejando el teléfono.</p></div>
+      </div>
+      <div class="tabla-wrap">
+        <table>
+          <thead><tr><th>Nombre</th><th>Teléfono</th><th>Visitas</th><th>Canjear</th></tr></thead>
+          <tbody id="clientes-body"><tr><td colspan="4" class="empty">Cargando…</td></tr></tbody>
+        </table>
       </div>
     </section>
   </div>
@@ -322,6 +335,16 @@
     if (!res.ok) throw new Error(`Supabase respondió ${res.status} en ${tabla}`);
   }
 
+  async function sbRpc(funcion, params){
+    const res = await fetchAutenticado(`${SUPABASE_URL}/rest/v1/rpc/${funcion}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    if (res.status === 401) { manejarSesionExpirada(); throw new Error('Sesión expirada'); }
+    if (!res.ok) throw new Error(`Supabase respondió ${res.status} en ${funcion}`);
+  }
+
   function money(n){ return '$' + Number(n).toLocaleString('es-AR', { maximumFractionDigits: 0 }); }
 
   // ---------- LOGIN ----------
@@ -367,6 +390,7 @@
     cargarPedidos();
     cargarMenu();
     cargarPromos();
+    cargarClientes();
     suscribirRealtime();
   }
 
@@ -379,6 +403,7 @@
       document.querySelectorAll('section.panel').forEach(p => p.classList.remove('active'));
       btn.classList.add('active');
       document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
+      if (btn.dataset.tab === 'clientes') cargarClientes();
     });
   });
 
@@ -496,6 +521,46 @@
       </div>
     `).join('');
     cablearFilaEditable(cont);
+  }
+
+  // ---------- CLIENTES / VISITAS ----------
+  async function cargarClientes(){
+    const body = document.getElementById('clientes-body');
+    let data;
+    try {
+      data = await sbSelect('clientes', 'select=*&order=visitas.desc');
+    } catch (err) {
+      body.innerHTML = `<tr><td colspan="4" class="empty">Error al cargar (${err.message}).</td></tr>`; return;
+    }
+    if (!data.length) { body.innerHTML = `<tr><td colspan="4" class="empty">Todavía no hay clientes registrados.</td></tr>`; return; }
+    body.innerHTML = data.map(c => `
+      <tr>
+        <td>${c.nombre || '—'}</td>
+        <td>${c.telefono}</td>
+        <td style="font-family:'Fraunces',serif; font-style:italic; color:var(--copper);">${c.visitas}</td>
+        <td>
+          <div style="display:flex; gap:6px; align-items:center;">
+            <input type="number" min="1" placeholder="Visitas" data-telefono="${c.telefono}" class="canje-input" style="width:80px; padding:6px 8px; font-size:0.85rem;">
+            <button class="icon-btn canje-btn" data-telefono="${c.telefono}" title="Descontar visitas (canje de premio)">✓</button>
+          </div>
+        </td>
+      </tr>
+    `).join('');
+
+    body.querySelectorAll('.canje-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const telefono = btn.dataset.telefono;
+        const input = body.querySelector(`.canje-input[data-telefono="${telefono}"]`);
+        const cantidad = Number(input.value);
+        if (!cantidad || cantidad <= 0) { alert('Ingresá cuántas visitas descontar.'); return; }
+        try {
+          await sbRpc('descontar_visitas', { p_telefono: telefono, p_cantidad: cantidad });
+        } catch (err) {
+          alert('No se pudo canjear: ' + err.message); return;
+        }
+        cargarClientes();
+      });
+    });
   }
 
   function cablearFilaEditable(cont){
