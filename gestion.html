@@ -246,8 +246,13 @@
             </div>
           </div>
         </div>
-        <div id="mesa-detalle" style="border:1px solid var(--line); border-radius:4px; padding:20px; align-self:start;">
-          <p class="empty">Elegí una mesa para ver sus opciones.</p>
+        <div style="display:flex; flex-direction:column; gap:20px; overflow-y:auto;">
+          <div id="mesa-detalle" style="border:1px solid var(--line); border-radius:4px; padding:20px; align-self:start;">
+            <div id="mesa-detalle-info">
+              <p class="empty">Elegí una mesa para ver sus opciones.</p>
+            </div>
+            <div id="mesa-pedido"></div>
+          </div>
         </div>
       </div>
     </section>
@@ -2943,6 +2948,7 @@ var qrcode = function() {
     } catch (err) {
       cont.innerHTML = `<p class="empty">Error al cargar (${err.message}).</p>`; return;
     }
+    menuCache = data || [];
     if (!data.length) { cont.innerHTML = `<p class="empty">Todavía no hay productos.</p>`; return; }
     const categorias = {};
     data.forEach(it => { (categorias[it.categoria] = categorias[it.categoria] || []).push(it); });
@@ -3039,6 +3045,8 @@ var qrcode = function() {
   };
 
   let mesasCache = [];
+  let menuCache = [];
+  let carritoMesa = {}; // { menuItemId: cantidad }
   let mesaSeleccionada = null;
 
   async function cargarMesas(){
@@ -3080,16 +3088,114 @@ var qrcode = function() {
 
     document.querySelectorAll('.mesa-tile').forEach(tile => {
       tile.addEventListener('click', () => {
-        mesaSeleccionada = Number(tile.dataset.mesa);
+        const nueva = Number(tile.dataset.mesa);
+        if (nueva !== mesaSeleccionada) carritoMesa = {};
+        mesaSeleccionada = nueva;
         cargarMesas();
       });
     });
 
     renderDetalleMesa();
+    renderPedidoMesa();
+  }
+
+  function renderPedidoMesa(){
+    const cont = document.getElementById('mesa-pedido');
+    if (mesaSeleccionada === null) { cont.innerHTML = ''; return; }
+
+    if (!menuCache.length) {
+      cont.innerHTML = `<p class="empty">Cargando carta…</p>`;
+      return;
+    }
+
+    const categorias = {};
+    menuCache.forEach(it => { (categorias[it.categoria] = categorias[it.categoria] || []).push(it); });
+
+    const totalCarrito = Object.entries(carritoMesa).reduce((acc, [id, cant]) => {
+      const item = menuCache.find(m => String(m.id) === String(id));
+      return acc + (item ? item.precio * cant : 0);
+    }, 0);
+    const hayItems = Object.values(carritoMesa).some(c => c > 0);
+
+    cont.innerHTML = `
+      <div style="border-top:1px solid var(--line); margin-top:18px; padding-top:16px;">
+        <div style="font-size:13px; font-weight:600; margin-bottom:14px;">Agregar pedido — Mesa ${mesaSeleccionada}</div>
+      <div style="display:flex; flex-direction:column; gap:14px; max-height:320px; overflow-y:auto; margin-bottom:14px;">
+        ${Object.keys(categorias).map(cat => `
+          <div>
+            <div style="font-size:11px; color:var(--copper); font-style:italic; margin-bottom:6px;">${cat}</div>
+            ${categorias[cat].map(it => {
+              const cant = carritoMesa[it.id] || 0;
+              return `
+                <div style="display:flex; align-items:center; justify-content:space-between; padding:5px 0;">
+                  <div style="font-size:12.5px;">
+                    <div>${it.nombre}</div>
+                    <div style="color:var(--text-dim); font-size:11px;">${money(it.precio)}</div>
+                  </div>
+                  <div style="display:flex; align-items:center; gap:8px;">
+                    <button class="icon-btn pedido-menos" data-id="${it.id}" style="width:24px; height:24px; padding:0;">−</button>
+                    <span style="min-width:14px; text-align:center; font-size:12.5px;">${cant}</span>
+                    <button class="icon-btn pedido-mas" data-id="${it.id}" style="width:24px; height:24px; padding:0;">+</button>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        `).join('')}
+      </div>
+      <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--line); padding-top:12px;">
+        <span style="font-family:'Fraunces',serif; font-style:italic; color:var(--copper);">${money(totalCarrito)}</span>
+        <button class="btn-primary" id="btn-enviar-pedido-mesa" ${hayItems ? '' : 'disabled'} style="padding:9px 18px; font-size:0.85rem;">Generar ticket</button>
+      </div>
+      </div>
+    `;
+
+    cont.querySelectorAll('.pedido-mas').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.id;
+        carritoMesa[id] = (carritoMesa[id] || 0) + 1;
+        renderPedidoMesa();
+      });
+    });
+    cont.querySelectorAll('.pedido-menos').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.id;
+        carritoMesa[id] = Math.max((carritoMesa[id] || 0) - 1, 0);
+        renderPedidoMesa();
+      });
+    });
+
+    const btnEnviar = document.getElementById('btn-enviar-pedido-mesa');
+    if (btnEnviar) {
+      btnEnviar.addEventListener('click', async () => {
+        const items = Object.entries(carritoMesa)
+          .filter(([, cant]) => cant > 0)
+          .map(([id, cant]) => {
+            const item = menuCache.find(m => String(m.id) === String(id));
+            return { nombre: item.nombre, precio: item.precio, cantidad: cant };
+          });
+        if (!items.length) return;
+        const total = items.reduce((acc, it) => acc + it.precio * it.cantidad, 0);
+
+        btnEnviar.disabled = true;
+        btnEnviar.textContent = 'Enviando…';
+        try {
+          await sbInsert('pedidos', { mesa: mesaSeleccionada, items, total, embajadora: null });
+        } catch (err) {
+          alert('No se pudo generar el ticket: ' + err.message);
+          btnEnviar.disabled = false;
+          btnEnviar.textContent = 'Generar ticket';
+          return;
+        }
+        carritoMesa = {};
+        renderPedidoMesa();
+        cargarPedidos();
+      });
+    }
   }
 
   async function renderDetalleMesa(){
-    const cont = document.getElementById('mesa-detalle');
+    const cont = document.getElementById('mesa-detalle-info');
     if (mesaSeleccionada === null) {
       cont.innerHTML = `<p class="empty">Elegí una mesa para ver sus opciones.</p>`;
       return;
