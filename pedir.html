@@ -182,8 +182,9 @@
     });
     if (!res.ok) {
       const texto = await res.text().catch(() => '');
-      console.error(`Error llamando ${funcion}: ${res.status} ${texto}`);
+      throw new Error(`Supabase respondió ${res.status} en ${funcion}: ${texto}`);
     }
+    return res.json().catch(() => null);
   }
 
   const params = new URLSearchParams(window.location.search);
@@ -300,16 +301,16 @@
     btnEnviar.textContent = 'Enviando…';
 
     try {
-      await sbInsert('pedidos', {
-        mesa: mesa,
-        items: items,
-        total: total,
-        embajadora: obtenerEmbajadora() || null,
+      await sbRpc('agregar_pedido_mesa', {
+        p_mesa: mesa,
+        p_items: items,
+        p_total: total,
+        p_embajadora: obtenerEmbajadora() || null,
       });
 
       const telefonoPuntos = document.getElementById('telefono-puntos').value.trim();
       if (telefonoPuntos) {
-        sbRpc('sumar_visita', { p_telefono: telefonoPuntos, p_nombre: null });
+        sbRpc('sumar_visita', { p_telefono: telefonoPuntos, p_nombre: null }).catch(err => console.error('No se pudo sumar visita', err));
       }
 
       document.querySelector('.wrap').innerHTML = `

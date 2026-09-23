@@ -3048,6 +3048,7 @@ var qrcode = function() {
   let menuCache = [];
   let carritoMesa = {}; // { menuItemId: cantidad }
   let mesaSeleccionada = null;
+  let mostrarTicketMesa = false;
 
   async function cargarMesas(){
     const gridTerraza = document.getElementById('mesas-grid-terraza');
@@ -3089,7 +3090,7 @@ var qrcode = function() {
     document.querySelectorAll('.mesa-tile').forEach(tile => {
       tile.addEventListener('click', () => {
         const nueva = Number(tile.dataset.mesa);
-        if (nueva !== mesaSeleccionada) carritoMesa = {};
+        if (nueva !== mesaSeleccionada) { carritoMesa = {}; mostrarTicketMesa = false; }
         mesaSeleccionada = nueva;
         cargarMesas();
       });
@@ -3102,6 +3103,9 @@ var qrcode = function() {
   function renderPedidoMesa(){
     const cont = document.getElementById('mesa-pedido');
     if (mesaSeleccionada === null) { cont.innerHTML = ''; return; }
+
+    const mesa = mesasCache.find(m => m.mesa === mesaSeleccionada);
+    if (!mesa || mesa.estado !== 'ocupada' || !mostrarTicketMesa) { cont.innerHTML = ''; return; }
 
     if (!menuCache.length) {
       cont.innerHTML = `<p class="empty">Cargando carta…</p>`;
@@ -3185,7 +3189,7 @@ var qrcode = function() {
         btnEnviar.disabled = true;
         btnEnviar.textContent = 'Enviando…';
         try {
-          await sbInsert('pedidos', { mesa: mesaSeleccionada, items, total, embajadora: null });
+          await sbRpc('agregar_pedido_mesa', { p_mesa: mesaSeleccionada, p_items: items, p_total: total, p_embajadora: null });
         } catch (err) {
           alert('No se pudo generar el ticket: ' + err.message);
           btnEnviar.disabled = false;
@@ -3193,8 +3197,9 @@ var qrcode = function() {
           return;
         }
         carritoMesa = {};
-        renderPedidoMesa();
+        mostrarTicketMesa = false;
         cargarPedidos();
+        cargarMesas();
       });
     }
   }
@@ -3232,7 +3237,10 @@ var qrcode = function() {
     } else if (mesa.estado === 'ocupada') {
       html += `
         <p style="font-size:16px; margin-bottom:22px;">Ocupada — <b>${mesa.personas || '?'} personas</b></p>
-        <button class="btn-primary" id="btn-liberar" style="padding:12px 20px; font-size:1rem;">Liberar mesa</button>
+        <div style="display:flex; gap:10px;">
+          <button class="btn-primary" id="btn-ticket" style="padding:12px 20px; font-size:1rem;">${mostrarTicketMesa ? 'Ocultar carta' : 'Ticket'}</button>
+          <button class="icon-btn" id="btn-liberar" style="width:auto; padding:11px 18px; font-size:1rem;">Liberar mesa</button>
+        </div>
       `;
     } else if (mesa.estado === 'reservada') {
       const reserva = reservasCache.find(r => r.id === mesa.reserva_id);
@@ -3291,9 +3299,15 @@ var qrcode = function() {
     if (mesa.estado === 'ocupada') {
       document.getElementById('btn-liberar').addEventListener('click', async () => {
         try {
-          await sbUpdateMesa(mesa.mesa, { estado: 'disponible', personas: null, reserva_id: null });
+          await sbUpdateMesa(mesa.mesa, { estado: 'disponible', personas: null, reserva_id: null, pedido_activo_id: null });
         } catch (err) { alert('No se pudo liberar la mesa: ' + err.message); return; }
+        mostrarTicketMesa = false;
         cargarMesas();
+      });
+      document.getElementById('btn-ticket').addEventListener('click', () => {
+        mostrarTicketMesa = !mostrarTicketMesa;
+        renderPedidoMesa();
+        renderDetalleMesa();
       });
     }
 
@@ -3306,7 +3320,7 @@ var qrcode = function() {
       });
       document.getElementById('btn-cancelar-reserva-mesa').addEventListener('click', async () => {
         try {
-          await sbUpdateMesa(mesa.mesa, { estado: 'disponible', personas: null, reserva_id: null });
+          await sbUpdateMesa(mesa.mesa, { estado: 'disponible', personas: null, reserva_id: null, pedido_activo_id: null });
         } catch (err) { alert('No se pudo liberar la mesa: ' + err.message); return; }
         cargarMesas();
       });
