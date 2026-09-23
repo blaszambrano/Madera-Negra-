@@ -231,17 +231,17 @@
           <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#C97878; margin-right:5px;"></span>Ocupada</span>
         </div>
       </div>
-      <div style="display:grid; grid-template-columns:1fr 380px; gap:32px;">
+      <div style="display:grid; grid-template-columns:auto 1fr; gap:32px;">
         <div style="display:flex; flex-direction:column; gap:30px;">
           <div>
             <div style="font-family:'Fraunces',serif; font-style:italic; color:var(--copper); margin-bottom:12px;">Terraza</div>
-            <div id="mesas-grid-terraza" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(80px, 1fr)); gap:12px;">
+            <div id="mesas-grid-terraza" style="display:grid; grid-template-columns:repeat(10, 76px); gap:12px;">
               <p class="empty">Cargando…</p>
             </div>
           </div>
           <div>
             <div style="font-family:'Fraunces',serif; font-style:italic; color:var(--copper); margin-bottom:12px;">Interior / Salón</div>
-            <div id="mesas-grid-interior" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(80px, 90px)); gap:12px; max-width:320px;">
+            <div id="mesas-grid-interior" style="display:grid; grid-template-columns:repeat(10, 76px); gap:12px;">
               <p class="empty">Cargando…</p>
             </div>
           </div>
@@ -3108,6 +3108,8 @@ var qrcode = function() {
       return;
     }
 
+    const scrollPrevio = document.getElementById('pedido-items-scroll')?.scrollTop || 0;
+
     const categorias = {};
     menuCache.forEach(it => { (categorias[it.categoria] = categorias[it.categoria] || []).push(it); });
 
@@ -3120,7 +3122,7 @@ var qrcode = function() {
     cont.innerHTML = `
       <div style="border-top:1px solid var(--line); margin-top:18px; padding-top:16px;">
         <div style="font-size:13px; font-weight:600; margin-bottom:14px;">Agregar pedido — Mesa ${mesaSeleccionada}</div>
-      <div style="display:flex; flex-direction:column; gap:14px; max-height:320px; overflow-y:auto; margin-bottom:14px;">
+      <div id="pedido-items-scroll" style="display:flex; flex-direction:column; gap:14px; max-height:320px; overflow-y:auto; margin-bottom:14px;">
         ${Object.keys(categorias).map(cat => `
           <div>
             <div style="font-size:11px; color:var(--copper); font-style:italic; margin-bottom:6px;">${cat}</div>
@@ -3149,6 +3151,9 @@ var qrcode = function() {
       </div>
       </div>
     `;
+
+    const scrollNuevo = document.getElementById('pedido-items-scroll');
+    if (scrollNuevo) scrollNuevo.scrollTop = scrollPrevio;
 
     cont.querySelectorAll('.pedido-mas').forEach(btn => {
       btn.addEventListener('click', () => {
