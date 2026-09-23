@@ -20,6 +20,12 @@
   button{ font-family:'Archivo',sans-serif; cursor:pointer; }
   input, select{ font-family:'Archivo',sans-serif; background:var(--panel); border:1px solid var(--line); color:var(--text); padding:9px 12px; border-radius:3px; font-size:0.9rem; }
   .wrap{ max-width:1180px; margin:0 auto; padding:0 32px; }
+  #panel-mesas{
+    max-width:none; width:100vw; box-sizing:border-box;
+    position:relative; left:50%; right:50%;
+    margin-left:-50vw; margin-right:-50vw;
+    padding:32px 40px;
+  }
 
   /* Login */
   #login-screen{
@@ -225,17 +231,17 @@
           <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#C97878; margin-right:5px;"></span>Ocupada</span>
         </div>
       </div>
-      <div style="display:grid; grid-template-columns:1.4fr 1fr; gap:24px;">
+      <div style="display:grid; grid-template-columns:1fr 380px; gap:32px;">
         <div style="display:flex; flex-direction:column; gap:30px;">
           <div>
             <div style="font-family:'Fraunces',serif; font-style:italic; color:var(--copper); margin-bottom:12px;">Terraza</div>
-            <div id="mesas-grid-terraza" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(70px, 1fr)); gap:10px;">
+            <div id="mesas-grid-terraza" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(80px, 1fr)); gap:12px;">
               <p class="empty">Cargando…</p>
             </div>
           </div>
           <div>
             <div style="font-family:'Fraunces',serif; font-style:italic; color:var(--copper); margin-bottom:12px;">Interior / Salón</div>
-            <div id="mesas-grid-interior" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(70px, 1fr)); gap:10px;">
+            <div id="mesas-grid-interior" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(80px, 90px)); gap:12px; max-width:320px;">
               <p class="empty">Cargando…</p>
             </div>
           </div>
