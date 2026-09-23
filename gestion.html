@@ -247,7 +247,7 @@
           </div>
         </div>
         <div style="display:flex; flex-direction:column; gap:20px; overflow-y:auto;">
-          <div id="mesa-detalle" style="border:1px solid var(--line); border-radius:4px; padding:20px; align-self:start;">
+          <div id="mesa-detalle" style="border:1px solid var(--line); border-radius:4px; padding:28px; font-size:1.08em;">
             <div id="mesa-detalle-info">
               <p class="empty">Elegí una mesa para ver sus opciones.</p>
             </div>
@@ -3120,24 +3120,24 @@ var qrcode = function() {
     const hayItems = Object.values(carritoMesa).some(c => c > 0);
 
     cont.innerHTML = `
-      <div style="border-top:1px solid var(--line); margin-top:18px; padding-top:16px;">
-        <div style="font-size:13px; font-weight:600; margin-bottom:14px;">Agregar pedido — Mesa ${mesaSeleccionada}</div>
-      <div id="pedido-items-scroll" style="display:flex; flex-direction:column; gap:14px; max-height:320px; overflow-y:auto; margin-bottom:14px;">
+      <div style="border-top:1px solid var(--line); margin-top:22px; padding-top:20px;">
+        <div style="font-size:16px; font-weight:600; margin-bottom:16px;">Agregar pedido — Mesa ${mesaSeleccionada}</div>
+      <div id="pedido-items-scroll" style="display:flex; flex-direction:column; gap:16px; max-height:380px; overflow-y:auto; margin-bottom:16px;">
         ${Object.keys(categorias).map(cat => `
           <div>
-            <div style="font-size:11px; color:var(--copper); font-style:italic; margin-bottom:6px;">${cat}</div>
+            <div style="font-size:13px; color:var(--copper); font-style:italic; margin-bottom:8px;">${cat}</div>
             ${categorias[cat].map(it => {
               const cant = carritoMesa[it.id] || 0;
               return `
-                <div style="display:flex; align-items:center; justify-content:space-between; padding:5px 0;">
-                  <div style="font-size:12.5px;">
+                <div style="display:flex; align-items:center; justify-content:space-between; padding:7px 0;">
+                  <div style="font-size:15px;">
                     <div>${it.nombre}</div>
-                    <div style="color:var(--text-dim); font-size:11px;">${money(it.precio)}</div>
+                    <div style="color:var(--text-dim); font-size:13px;">${money(it.precio)}</div>
                   </div>
-                  <div style="display:flex; align-items:center; gap:8px;">
-                    <button class="icon-btn pedido-menos" data-id="${it.id}" style="width:24px; height:24px; padding:0;">−</button>
-                    <span style="min-width:14px; text-align:center; font-size:12.5px;">${cant}</span>
-                    <button class="icon-btn pedido-mas" data-id="${it.id}" style="width:24px; height:24px; padding:0;">+</button>
+                  <div style="display:flex; align-items:center; gap:10px;">
+                    <button class="icon-btn pedido-menos" data-id="${it.id}" style="width:30px; height:30px; padding:0; font-size:16px;">−</button>
+                    <span style="min-width:18px; text-align:center; font-size:15px;">${cant}</span>
+                    <button class="icon-btn pedido-mas" data-id="${it.id}" style="width:30px; height:30px; padding:0; font-size:16px;">+</button>
                   </div>
                 </div>
               `;
@@ -3145,9 +3145,9 @@ var qrcode = function() {
           </div>
         `).join('')}
       </div>
-      <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--line); padding-top:12px;">
-        <span style="font-family:'Fraunces',serif; font-style:italic; color:var(--copper);">${money(totalCarrito)}</span>
-        <button class="btn-primary" id="btn-enviar-pedido-mesa" ${hayItems ? '' : 'disabled'} style="padding:9px 18px; font-size:0.85rem;">Generar ticket</button>
+      <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--line); padding-top:16px;">
+        <span style="font-family:'Fraunces',serif; font-style:italic; color:var(--copper); font-size:1.3rem;">${money(totalCarrito)}</span>
+        <button class="btn-primary" id="btn-enviar-pedido-mesa" ${hayItems ? '' : 'disabled'} style="padding:12px 22px; font-size:1rem;">Generar ticket</button>
       </div>
       </div>
     `;
@@ -3211,39 +3211,39 @@ var qrcode = function() {
 
     const zona = mesa.mesa <= 20 ? 'Terraza' : 'Interior / Salón';
     let html = `
-      <h3 style="font-family:'Fraunces',serif; font-size:1.3rem; margin-bottom:4px;">Mesa ${mesa.mesa}</h3>
-      <p style="font-size:12px; color:var(--text-dim); margin:0 0 18px;">${zona}</p>
+      <h3 style="font-family:'Fraunces',serif; font-size:1.7rem; margin-bottom:6px;">Mesa ${mesa.mesa}</h3>
+      <p style="font-size:14px; color:var(--text-dim); margin:0 0 22px;">${zona}</p>
     `;
 
     if (mesa.estado === 'disponible') {
       html += `
-        <div style="margin-bottom:22px;">
-          <div style="font-size:13px; font-weight:600; margin-bottom:8px;">Crear mesa</div>
-          <div style="display:flex; gap:8px;">
-            <input type="number" id="input-personas" min="1" value="2" style="width:70px; padding:8px; font-size:0.9rem;">
-            <button class="btn-primary" id="btn-ocupar" style="padding:8px 14px; font-size:0.85rem;">Ocupar mesa</button>
+        <div style="margin-bottom:26px;">
+          <div style="font-size:15px; font-weight:600; margin-bottom:10px;">Crear mesa</div>
+          <div style="display:flex; gap:10px;">
+            <input type="number" id="input-personas" min="1" value="2" style="width:90px; padding:11px; font-size:1.05rem;">
+            <button class="btn-primary" id="btn-ocupar" style="padding:11px 18px; font-size:1rem;">Ocupar mesa</button>
           </div>
         </div>
         <div>
-          <div style="font-size:13px; font-weight:600; margin-bottom:8px;">Marcar como reservada</div>
+          <div style="font-size:15px; font-weight:600; margin-bottom:10px;">Marcar como reservada</div>
           <div id="picker-reservas"></div>
         </div>
       `;
     } else if (mesa.estado === 'ocupada') {
       html += `
-        <p style="font-size:14px; margin-bottom:18px;">Ocupada — <b>${mesa.personas || '?'} personas</b></p>
-        <button class="btn-primary" id="btn-liberar" style="padding:10px 16px; font-size:0.85rem;">Liberar mesa</button>
+        <p style="font-size:16px; margin-bottom:22px;">Ocupada — <b>${mesa.personas || '?'} personas</b></p>
+        <button class="btn-primary" id="btn-liberar" style="padding:12px 20px; font-size:1rem;">Liberar mesa</button>
       `;
     } else if (mesa.estado === 'reservada') {
       const reserva = reservasCache.find(r => r.id === mesa.reserva_id);
       html += `
-        <p style="font-size:13px; color:var(--text-dim); margin-bottom:6px;">Reservada para:</p>
-        <p style="font-size:14px; margin-bottom:18px;">
+        <p style="font-size:14px; color:var(--text-dim); margin-bottom:8px;">Reservada para:</p>
+        <p style="font-size:16px; margin-bottom:22px;">
           ${reserva ? `<b>${reserva.nombre}</b><br>${reserva.hora} · ${reserva.personas} personas` : 'Reserva no encontrada'}
         </p>
-        <div style="display:flex; flex-direction:column; gap:8px;">
-          <button class="btn-primary" id="btn-llegaron" style="padding:10px 16px; font-size:0.85rem;">Ya llegaron (ocupar)</button>
-          <button class="icon-btn" id="btn-cancelar-reserva-mesa" style="width:auto; padding:8px 14px; font-size:0.85rem;">Liberar mesa</button>
+        <div style="display:flex; flex-direction:column; gap:10px;">
+          <button class="btn-primary" id="btn-llegaron" style="padding:12px 20px; font-size:1rem;">Ya llegaron (ocupar)</button>
+          <button class="icon-btn" id="btn-cancelar-reserva-mesa" style="width:auto; padding:11px 18px; font-size:1rem;">Liberar mesa</button>
         </div>
       `;
     }
@@ -3269,13 +3269,13 @@ var qrcode = function() {
 
       const pickerCont = document.getElementById('picker-reservas');
       if (!disponiblesHoy.length) {
-        pickerCont.innerHTML = `<p style="font-size:12px; color:var(--text-dim);">No hay reservas de hoy sin mesa asignada.</p>`;
+        pickerCont.innerHTML = `<p style="font-size:14px; color:var(--text-dim);">No hay reservas de hoy sin mesa asignada.</p>`;
       } else {
         pickerCont.innerHTML = `
-          <select id="select-reserva" style="width:100%; padding:8px; font-size:0.85rem; margin-bottom:8px;">
+          <select id="select-reserva" style="width:100%; padding:11px; font-size:1rem; margin-bottom:10px;">
             ${disponiblesHoy.map(r => `<option value="${r.id}">${r.nombre} — ${r.hora} — ${r.personas}p</option>`).join('')}
           </select>
-          <button class="icon-btn" id="btn-reservar-mesa" style="width:100%; padding:8px; font-size:0.85rem;">Reservar esta mesa</button>
+          <button class="icon-btn" id="btn-reservar-mesa" style="width:100%; padding:11px; font-size:1rem;">Reservar esta mesa</button>
         `;
         document.getElementById('btn-reservar-mesa').addEventListener('click', async () => {
           const reservaId = document.getElementById('select-reserva').value;
