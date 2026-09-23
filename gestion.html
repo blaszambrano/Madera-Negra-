@@ -218,15 +218,31 @@
 
     <section class="panel" id="panel-mesas">
       <div class="section-head">
-        <div><h2>Plano de mesas</h2><p>Tocá una mesa para rotar su estado: Disponible → Reservada → Ocupada → Disponible.</p></div>
+        <div><h2>Plano de mesas</h2><p>Tocá una mesa para ver sus opciones.</p></div>
         <div style="display:flex; gap:14px; font-size:12px; color:var(--text-dim);">
           <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#7C8A5E; margin-right:5px;"></span>Disponible</span>
           <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#C68A4C; margin-right:5px;"></span>Reservada</span>
           <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#C97878; margin-right:5px;"></span>Ocupada</span>
         </div>
       </div>
-      <div id="mesas-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(90px, 1fr)); gap:12px;">
-        <p class="empty">Cargando…</p>
+      <div style="display:grid; grid-template-columns:1.4fr 1fr; gap:24px;">
+        <div style="display:flex; flex-direction:column; gap:30px;">
+          <div>
+            <div style="font-family:'Fraunces',serif; font-style:italic; color:var(--copper); margin-bottom:12px;">Terraza</div>
+            <div id="mesas-grid-terraza" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(70px, 1fr)); gap:10px;">
+              <p class="empty">Cargando…</p>
+            </div>
+          </div>
+          <div>
+            <div style="font-family:'Fraunces',serif; font-style:italic; color:var(--copper); margin-bottom:12px;">Interior / Salón</div>
+            <div id="mesas-grid-interior" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(70px, 1fr)); gap:10px;">
+              <p class="empty">Cargando…</p>
+            </div>
+          </div>
+        </div>
+        <div id="mesa-detalle" style="border:1px solid var(--line); border-radius:4px; padding:20px; align-self:start;">
+          <p class="empty">Elegí una mesa para ver sus opciones.</p>
+        </div>
       </div>
     </section>
 
@@ -3010,53 +3026,174 @@ var qrcode = function() {
   }
 
   // ---------- PLANO DE MESAS ----------
-  const ORDEN_ESTADOS = ['disponible', 'reservada', 'ocupada'];
   const ESTILO_ESTADO = {
     disponible: { bg: 'rgba(124,138,94,0.16)', fg: '#9CAE7C', borde: '#7C8A5E' },
     reservada:  { bg: 'rgba(198,138,76,0.16)', fg: '#C68A4C', borde: '#C68A4C' },
     ocupada:    { bg: 'rgba(201,120,120,0.16)', fg: '#C97878', borde: '#C97878' },
   };
 
+  let mesasCache = [];
+  let mesaSeleccionada = null;
+
   async function cargarMesas(){
-    const grid = document.getElementById('mesas-grid');
+    const gridTerraza = document.getElementById('mesas-grid-terraza');
+    const gridInterior = document.getElementById('mesas-grid-interior');
     let data;
     try {
       data = await sbSelect('mesas_estado', 'select=*&order=mesa.asc');
     } catch (err) {
-      grid.innerHTML = `<p class="empty">Error al cargar (${err.message}).</p>`; return;
+      gridTerraza.innerHTML = `<p class="empty">Error al cargar (${err.message}).</p>`;
+      return;
     }
-    if (!data.length) { grid.innerHTML = `<p class="empty">No hay mesas cargadas todavía.</p>`; return; }
+    mesasCache = data || [];
 
-    grid.innerHTML = data.map(m => {
-      const est = ESTILO_ESTADO[m.estado] || ESTILO_ESTADO.disponible;
-      return `
-        <button class="mesa-tile" data-mesa="${m.mesa}" data-estado="${m.estado}" style="
-          aspect-ratio:1; border-radius:8px; border:2px solid ${est.borde};
-          background:${est.bg}; color:${est.fg}; cursor:pointer;
-          display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px;
-          font-family:'Archivo',sans-serif; padding:8px;">
-          <span style="font-family:'Fraunces',serif; font-size:1.3rem; font-style:italic; color:var(--text);">${m.mesa}</span>
-          <span style="font-size:10px; text-transform:uppercase; letter-spacing:0.03em;">${m.estado}</span>
-        </button>
-      `;
-    }).join('');
+    const terraza = mesasCache.filter(m => m.mesa <= 20);
+    const interior = mesasCache.filter(m => m.mesa > 20);
 
-    grid.querySelectorAll('.mesa-tile').forEach(tile => {
-      tile.addEventListener('click', async () => {
-        const mesa = tile.dataset.mesa;
-        const actual = tile.dataset.estado;
-        const siguiente = ORDEN_ESTADOS[(ORDEN_ESTADOS.indexOf(actual) + 1) % ORDEN_ESTADOS.length];
-        tile.disabled = true;
-        try {
-          await sbUpdateMesa(mesa, { estado: siguiente });
-        } catch (err) {
-          alert('No se pudo actualizar la mesa: ' + err.message);
-          tile.disabled = false;
-          return;
-        }
+    function renderGrid(lista){
+      if (!lista.length) return `<p class="empty">No hay mesas cargadas.</p>`;
+      return lista.map(m => {
+        const est = ESTILO_ESTADO[m.estado] || ESTILO_ESTADO.disponible;
+        const sel = m.mesa === mesaSeleccionada;
+        return `
+          <button class="mesa-tile" data-mesa="${m.mesa}" style="
+            aspect-ratio:1; border-radius:8px; border:2px solid ${est.borde};
+            background:${est.bg}; color:${est.fg}; cursor:pointer;
+            display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+            font-family:'Archivo',sans-serif; padding:6px;
+            ${sel ? 'box-shadow:0 0 0 2px var(--text);' : ''}">
+            <span style="font-family:'Fraunces',serif; font-size:1.2rem; font-style:italic; color:var(--text);">${m.mesa}</span>
+            ${m.estado === 'ocupada' && m.personas ? `<span style="font-size:10px;">${m.personas}p</span>` : ''}
+          </button>
+        `;
+      }).join('');
+    }
+
+    gridTerraza.innerHTML = renderGrid(terraza);
+    gridInterior.innerHTML = renderGrid(interior);
+
+    document.querySelectorAll('.mesa-tile').forEach(tile => {
+      tile.addEventListener('click', () => {
+        mesaSeleccionada = Number(tile.dataset.mesa);
         cargarMesas();
       });
     });
+
+    renderDetalleMesa();
+  }
+
+  async function renderDetalleMesa(){
+    const cont = document.getElementById('mesa-detalle');
+    if (mesaSeleccionada === null) {
+      cont.innerHTML = `<p class="empty">Elegí una mesa para ver sus opciones.</p>`;
+      return;
+    }
+
+    const mesa = mesasCache.find(m => m.mesa === mesaSeleccionada);
+    if (!mesa) { cont.innerHTML = `<p class="empty">Mesa no encontrada.</p>`; return; }
+
+    const zona = mesa.mesa <= 20 ? 'Terraza' : 'Interior / Salón';
+    let html = `
+      <h3 style="font-family:'Fraunces',serif; font-size:1.3rem; margin-bottom:4px;">Mesa ${mesa.mesa}</h3>
+      <p style="font-size:12px; color:var(--text-dim); margin:0 0 18px;">${zona}</p>
+    `;
+
+    if (mesa.estado === 'disponible') {
+      html += `
+        <div style="margin-bottom:22px;">
+          <div style="font-size:13px; font-weight:600; margin-bottom:8px;">Crear mesa</div>
+          <div style="display:flex; gap:8px;">
+            <input type="number" id="input-personas" min="1" value="2" style="width:70px; padding:8px; font-size:0.9rem;">
+            <button class="btn-primary" id="btn-ocupar" style="padding:8px 14px; font-size:0.85rem;">Ocupar mesa</button>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:13px; font-weight:600; margin-bottom:8px;">Marcar como reservada</div>
+          <div id="picker-reservas"></div>
+        </div>
+      `;
+    } else if (mesa.estado === 'ocupada') {
+      html += `
+        <p style="font-size:14px; margin-bottom:18px;">Ocupada — <b>${mesa.personas || '?'} personas</b></p>
+        <button class="btn-primary" id="btn-liberar" style="padding:10px 16px; font-size:0.85rem;">Liberar mesa</button>
+      `;
+    } else if (mesa.estado === 'reservada') {
+      const reserva = reservasCache.find(r => r.id === mesa.reserva_id);
+      html += `
+        <p style="font-size:13px; color:var(--text-dim); margin-bottom:6px;">Reservada para:</p>
+        <p style="font-size:14px; margin-bottom:18px;">
+          ${reserva ? `<b>${reserva.nombre}</b><br>${reserva.hora} · ${reserva.personas} personas` : 'Reserva no encontrada'}
+        </p>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <button class="btn-primary" id="btn-llegaron" style="padding:10px 16px; font-size:0.85rem;">Ya llegaron (ocupar)</button>
+          <button class="icon-btn" id="btn-cancelar-reserva-mesa" style="width:auto; padding:8px 14px; font-size:0.85rem;">Liberar mesa</button>
+        </div>
+      `;
+    }
+
+    cont.innerHTML = html;
+
+    if (mesa.estado === 'disponible') {
+      document.getElementById('btn-ocupar').addEventListener('click', async () => {
+        const personas = Number(document.getElementById('input-personas').value);
+        if (!personas || personas <= 0) { alert('Ingresá la cantidad de personas.'); return; }
+        try {
+          await sbUpdateMesa(mesa.mesa, { estado: 'ocupada', personas, reserva_id: null });
+        } catch (err) { alert('No se pudo ocupar la mesa: ' + err.message); return; }
+        cargarMesas();
+      });
+
+      // Picker de reservas de hoy, sin asignar todavía
+      const hoy = new Date().toISOString().slice(0, 10);
+      const asignadas = new Set(mesasCache.filter(m => m.reserva_id).map(m => m.reserva_id));
+      const disponiblesHoy = reservasCache.filter(r =>
+        r.fecha === hoy && r.estado !== 'cancelada' && !asignadas.has(r.id)
+      );
+
+      const pickerCont = document.getElementById('picker-reservas');
+      if (!disponiblesHoy.length) {
+        pickerCont.innerHTML = `<p style="font-size:12px; color:var(--text-dim);">No hay reservas de hoy sin mesa asignada.</p>`;
+      } else {
+        pickerCont.innerHTML = `
+          <select id="select-reserva" style="width:100%; padding:8px; font-size:0.85rem; margin-bottom:8px;">
+            ${disponiblesHoy.map(r => `<option value="${r.id}">${r.nombre} — ${r.hora} — ${r.personas}p</option>`).join('')}
+          </select>
+          <button class="icon-btn" id="btn-reservar-mesa" style="width:100%; padding:8px; font-size:0.85rem;">Reservar esta mesa</button>
+        `;
+        document.getElementById('btn-reservar-mesa').addEventListener('click', async () => {
+          const reservaId = document.getElementById('select-reserva').value;
+          const reserva = disponiblesHoy.find(r => r.id === reservaId);
+          try {
+            await sbUpdateMesa(mesa.mesa, { estado: 'reservada', reserva_id: reservaId, personas: reserva ? reserva.personas : null });
+          } catch (err) { alert('No se pudo reservar la mesa: ' + err.message); return; }
+          cargarMesas();
+        });
+      }
+    }
+
+    if (mesa.estado === 'ocupada') {
+      document.getElementById('btn-liberar').addEventListener('click', async () => {
+        try {
+          await sbUpdateMesa(mesa.mesa, { estado: 'disponible', personas: null, reserva_id: null });
+        } catch (err) { alert('No se pudo liberar la mesa: ' + err.message); return; }
+        cargarMesas();
+      });
+    }
+
+    if (mesa.estado === 'reservada') {
+      document.getElementById('btn-llegaron').addEventListener('click', async () => {
+        try {
+          await sbUpdateMesa(mesa.mesa, { estado: 'ocupada' });
+        } catch (err) { alert('No se pudo actualizar: ' + err.message); return; }
+        cargarMesas();
+      });
+      document.getElementById('btn-cancelar-reserva-mesa').addEventListener('click', async () => {
+        try {
+          await sbUpdateMesa(mesa.mesa, { estado: 'disponible', personas: null, reserva_id: null });
+        } catch (err) { alert('No se pudo liberar la mesa: ' + err.message); return; }
+        cargarMesas();
+      });
+    }
   }
 
   // ---------- EMBAJADORAS ----------
