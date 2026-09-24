@@ -116,7 +116,7 @@
   <div class="brand-logo"></div>
   <h1>Panel de gestión<br><em style="font-style:italic;color:var(--copper)">Madera Negra</em></h1>
   <form id="login-form">
-    <input type="email" id="login-email" placeholder="Email" required autocomplete="username">
+    <input type="text" id="login-email" placeholder="Usuario" required autocomplete="username">
     <input type="password" id="login-password" placeholder="Contraseña" required autocomplete="current-password">
     <button type="submit" class="btn-primary" id="login-btn">Ingresar</button>
     <div id="login-error"></div>
@@ -144,6 +144,9 @@
       <button data-tab="clientes">Clientes</button>
       <button data-tab="mesas">Mesas</button>
       <button data-tab="embajadoras">Embajadoras</button>
+      <button data-tab="cocteleria">Coctelería</button>
+      <button data-tab="cocina">Cocina</button>
+      <button data-tab="atencion">Atención</button>
     </nav>
 
     <section class="panel active" id="panel-reservas">
@@ -195,6 +198,10 @@
         <input type="text" id="nuevo-categoria" placeholder="Categoría (ej: Cerveza)">
         <input type="text" id="nuevo-nombre" placeholder="Nombre del producto">
         <input type="number" id="nuevo-precio" placeholder="Precio">
+        <select id="nuevo-tipo" style="padding:8px;">
+          <option value="cocteleria">Coctelería</option>
+          <option value="cocina">Cocina</option>
+        </select>
         <button class="btn-primary" id="agregar-producto" style="padding:9px 16px;">+ Agregar producto</button>
       </div>
 
@@ -273,6 +280,27 @@
           <tbody id="embajadoras-body"><tr><td colspan="5" class="empty">Cargando…</td></tr></tbody>
         </table>
       </div>
+    </section>
+
+    <section class="panel" id="panel-cocteleria">
+      <div class="section-head">
+        <div><h2>Coctelería</h2><p>Pedidos de bebidas pendientes de preparar.</p></div>
+      </div>
+      <div id="cocteleria-lista" style="display:flex; flex-direction:column; gap:12px;"><p class="empty">Cargando…</p></div>
+    </section>
+
+    <section class="panel" id="panel-cocina">
+      <div class="section-head">
+        <div><h2>Cocina</h2><p>Pedidos de comida pendientes de preparar.</p></div>
+      </div>
+      <div id="cocina-lista" style="display:flex; flex-direction:column; gap:12px;"><p class="empty">Cargando…</p></div>
+    </section>
+
+    <section class="panel" id="panel-atencion">
+      <div class="section-head">
+        <div><h2>Atención</h2><p>Listo para retirar y entregar en la mesa.</p></div>
+      </div>
+      <div id="atencion-lista" style="display:flex; flex-direction:column; gap:12px;"><p class="empty">Cargando…</p></div>
     </section>
   </div>
 </div>
@@ -2609,13 +2637,16 @@ var qrcode = function() {
 
   function getAccessToken(){ return localStorage.getItem('mn_access_token'); }
   function getRefreshToken(){ return localStorage.getItem('mn_refresh_token'); }
+  function getUserEmail(){ return localStorage.getItem('mn_user_email'); }
   function setSession(data){
     localStorage.setItem('mn_access_token', data.access_token);
     if (data.refresh_token) localStorage.setItem('mn_refresh_token', data.refresh_token);
+    if (data.user && data.user.email) localStorage.setItem('mn_user_email', data.user.email);
   }
   function clearAccessToken(){
     localStorage.removeItem('mn_access_token');
     localStorage.removeItem('mn_refresh_token');
+    localStorage.removeItem('mn_user_email');
   }
 
   async function sbLogin(email, password){
@@ -2759,12 +2790,15 @@ var qrcode = function() {
   const loginError = document.getElementById('login-error');
   const loginBtn = document.getElementById('login-btn');
 
+  const DOMINIO_STAFF = 'staff.maderanegra.local';
+
   loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     loginError.textContent = '';
     loginBtn.disabled = true;
     loginBtn.textContent = 'Ingresando…';
-    const email = document.getElementById('login-email').value.trim();
+    const usuario = document.getElementById('login-email').value.trim().toLowerCase().replace(/\s+/g, '');
+    const email = usuario.includes('@') ? usuario : `${usuario}@${DOMINIO_STAFF}`;
     const password = document.getElementById('login-password').value;
     let resultado;
     try {
@@ -2775,7 +2809,7 @@ var qrcode = function() {
     loginBtn.disabled = false;
     loginBtn.textContent = 'Ingresar';
     if (!resultado) {
-      loginError.textContent = 'Email o contraseña incorrectos.';
+      loginError.textContent = 'Usuario o contraseña incorrectos.';
       return;
     }
     mostrarApp();
@@ -2788,9 +2822,45 @@ var qrcode = function() {
 
   let pollingId = null;
 
+  let rolActual = 'dueno';
+
+  const TABS_POR_ROL = {
+    dueno: ['reservas','calendario','pedidos','precios','clientes','mesas','embajadoras','cocteleria','cocina','atencion'],
+    recepcion: ['reservas','calendario','pedidos','precios','clientes','mesas','embajadoras','cocteleria','cocina','atencion'],
+    cocteleria: ['cocteleria'],
+    cocina: ['cocina'],
+    atencion: ['atencion'],
+  };
+
+  async function cargarRolActual(){
+    const email = getUserEmail();
+    if (!email) { rolActual = 'dueno'; return; }
+    try {
+      const data = await sbSelect('staff_roles', `select=rol&email=eq.${encodeURIComponent(email)}`);
+      rolActual = (data && data[0] && data[0].rol) || 'dueno';
+    } catch (err) {
+      console.error('No se pudo cargar el rol, usando dueño por defecto', err);
+      rolActual = 'dueno';
+    }
+  }
+
+  function aplicarVisibilidadPorRol(){
+    const permitidas = TABS_POR_ROL[rolActual] || TABS_POR_ROL.dueno;
+    document.querySelectorAll('nav.tabs button').forEach(btn => {
+      btn.style.display = permitidas.includes(btn.dataset.tab) ? '' : 'none';
+    });
+    document.querySelectorAll('nav.tabs button').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('section.panel').forEach(p => p.classList.remove('active'));
+    const primera = permitidas[0];
+    document.querySelector(`nav.tabs button[data-tab="${primera}"]`)?.classList.add('active');
+    document.getElementById('panel-' + primera)?.classList.add('active');
+  }
+
   async function mostrarApp(){
     loginScreen.style.display = 'none';
     appScreen.style.display = 'block';
+    await cargarRolActual();
+    aplicarVisibilidadPorRol();
     cargarReservas();
     cargarPedidos();
     cargarMenu();
@@ -2798,6 +2868,9 @@ var qrcode = function() {
     cargarClientes();
     cargarMesas();
     cargarEmbajadoras();
+    cargarCocteleria();
+    cargarCocina();
+    cargarAtencion();
     suscribirRealtime();
   }
 
@@ -2813,8 +2886,72 @@ var qrcode = function() {
       if (btn.dataset.tab === 'clientes') cargarClientes();
       if (btn.dataset.tab === 'mesas') cargarMesas();
       if (btn.dataset.tab === 'embajadoras') cargarEmbajadoras();
+      if (btn.dataset.tab === 'cocteleria') cargarCocteleria();
+      if (btn.dataset.tab === 'cocina') cargarCocina();
+      if (btn.dataset.tab === 'atencion') cargarAtencion();
     });
   });
+
+  // ---------- COCTELERÍA / COCINA / ATENCIÓN ----------
+  async function cargarItemsFiltrados(contId, filtroFn, estadoDestino, etiquetaBoton){
+    const cont = document.getElementById(contId);
+    let data;
+    try {
+      data = await sbSelect('pedidos', 'select=id,mesa,items&order=creado_en.asc');
+    } catch (err) {
+      cont.innerHTML = `<p class="empty">Error al cargar (${err.message}).</p>`; return;
+    }
+
+    const filas = [];
+    (data || []).forEach(p => {
+      (p.items || []).forEach(it => {
+        if (filtroFn(it)) filas.push({ pedidoId: p.id, mesa: p.mesa, item: it });
+      });
+    });
+
+    if (!filas.length) { cont.innerHTML = `<p class="empty">Nada pendiente por ahora.</p>`; return; }
+
+    cont.innerHTML = filas.map(f => `
+      <div style="border:1px solid var(--line); border-radius:6px; padding:16px 20px; display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <div style="font-family:'Fraunces',serif; font-style:italic; color:var(--copper); font-size:1.15rem;">Mesa ${f.mesa}</div>
+          <div style="font-size:16px; margin-top:4px;">${f.item.cantidad}x ${f.item.nombre}</div>
+        </div>
+        <button class="btn-primary marcar-btn" data-pedido="${f.pedidoId}" data-item="${f.item.id}" style="padding:10px 18px; font-size:0.95rem;">${etiquetaBoton}</button>
+      </div>
+    `).join('');
+
+    cont.querySelectorAll('.marcar-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        try {
+          await sbRpc('actualizar_estado_item', {
+            p_pedido_id: btn.dataset.pedido,
+            p_item_id: btn.dataset.item,
+            p_nuevo_estado: estadoDestino,
+          });
+        } catch (err) {
+          alert('No se pudo actualizar: ' + err.message);
+          btn.disabled = false;
+          return;
+        }
+        cargarCocteleria();
+        cargarCocina();
+        cargarAtencion();
+      });
+    });
+  }
+
+  async function cargarCocteleria(){
+    await cargarItemsFiltrados('cocteleria-lista', it => it.tipo === 'cocteleria' && it.estado === 'pendiente', 'listo', 'Marcar listo');
+  }
+  async function cargarCocina(){
+    await cargarItemsFiltrados('cocina-lista', it => it.tipo === 'cocina' && it.estado === 'pendiente', 'listo', 'Marcar listo');
+  }
+  async function cargarAtencion(){
+    await cargarItemsFiltrados('atencion-lista', it => it.estado === 'listo', 'entregado', 'Marcar entregado');
+  }
+
 
   // ---------- RESERVAS ----------
   let reservasCache = [];
@@ -2959,6 +3096,10 @@ var qrcode = function() {
           <div class="cat-row">
             <input type="text" value="${it.nombre}" data-id="${it.id}" data-field="nombre" data-tabla="menu_items">
             <input type="number" value="${it.precio}" data-id="${it.id}" data-field="precio" data-tabla="menu_items">
+            <select data-id="${it.id}" data-field="tipo" data-tabla="menu_items" style="padding:6px 8px;">
+              <option value="cocteleria" ${it.tipo === 'cocteleria' ? 'selected' : ''}>Coctelería</option>
+              <option value="cocina" ${it.tipo === 'cocina' ? 'selected' : ''}>Cocina</option>
+            </select>
             <button class="icon-btn" data-id="${it.id}" data-tabla="menu_items" data-action="borrar" title="Borrar">✕</button>
           </div>
         `).join('')}
@@ -3410,7 +3551,7 @@ var qrcode = function() {
   });
 
   function cablearFilaEditable(cont){
-    cont.querySelectorAll('input').forEach(inp => {
+    cont.querySelectorAll('input, select').forEach(inp => {
       inp.addEventListener('change', async () => {
         const { id, field, tabla } = inp.dataset;
         const valor = inp.type === 'number' ? Number(inp.value) : inp.value;
@@ -3431,8 +3572,9 @@ var qrcode = function() {
     const categoria = document.getElementById('nuevo-categoria').value.trim();
     const nombre = document.getElementById('nuevo-nombre').value.trim();
     const precio = Number(document.getElementById('nuevo-precio').value);
+    const tipo = document.getElementById('nuevo-tipo').value;
     if (!categoria || !nombre || !precio) { alert('Completá categoría, nombre y precio.'); return; }
-    try { await sbInsert('menu_items', { categoria, nombre, precio, orden: 99 }); } catch (err) { alert('No se pudo agregar: ' + err.message); return; }
+    try { await sbInsert('menu_items', { categoria, nombre, precio, orden: 99, tipo }); } catch (err) { alert('No se pudo agregar: ' + err.message); return; }
     document.getElementById('nuevo-categoria').value = '';
     document.getElementById('nuevo-nombre').value = '';
     document.getElementById('nuevo-precio').value = '';
