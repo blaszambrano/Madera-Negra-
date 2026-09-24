@@ -251,7 +251,6 @@
             <div id="mesa-detalle-info">
               <p class="empty">Elegí una mesa para ver sus opciones.</p>
             </div>
-            <div id="mesa-pedido"></div>
           </div>
         </div>
       </div>
@@ -3046,9 +3045,7 @@ var qrcode = function() {
 
   let mesasCache = [];
   let menuCache = [];
-  let carritoMesa = {}; // { menuItemId: cantidad }
   let mesaSeleccionada = null;
-  let mostrarTicketMesa = false;
 
   async function cargarMesas(){
     const gridTerraza = document.getElementById('mesas-grid-terraza');
@@ -3090,117 +3087,25 @@ var qrcode = function() {
     document.querySelectorAll('.mesa-tile').forEach(tile => {
       tile.addEventListener('click', () => {
         const nueva = Number(tile.dataset.mesa);
-        if (nueva !== mesaSeleccionada) { carritoMesa = {}; mostrarTicketMesa = false; }
+        // (nada que resetear al cambiar de mesa)
         mesaSeleccionada = nueva;
         cargarMesas();
       });
     });
 
     renderDetalleMesa();
-    renderPedidoMesa();
   }
 
-  function renderPedidoMesa(){
-    const cont = document.getElementById('mesa-pedido');
-    if (mesaSeleccionada === null) { cont.innerHTML = ''; return; }
-
-    const mesa = mesasCache.find(m => m.mesa === mesaSeleccionada);
-    if (!mesa || mesa.estado !== 'ocupada' || !mostrarTicketMesa) { cont.innerHTML = ''; return; }
-
-    if (!menuCache.length) {
-      cont.innerHTML = `<p class="empty">Cargando carta…</p>`;
+  async function pedirTicket(mesa){
+    if (!mesa.pedido_activo_id) {
+      alert('Esta mesa todavía no tiene ningún pedido para cobrar.');
       return;
     }
-
-    const scrollPrevio = document.getElementById('pedido-items-scroll')?.scrollTop || 0;
-
-    const categorias = {};
-    menuCache.forEach(it => { (categorias[it.categoria] = categorias[it.categoria] || []).push(it); });
-
-    const totalCarrito = Object.entries(carritoMesa).reduce((acc, [id, cant]) => {
-      const item = menuCache.find(m => String(m.id) === String(id));
-      return acc + (item ? item.precio * cant : 0);
-    }, 0);
-    const hayItems = Object.values(carritoMesa).some(c => c > 0);
-
-    cont.innerHTML = `
-      <div style="border-top:1px solid var(--line); margin-top:22px; padding-top:20px;">
-        <div style="font-size:16px; font-weight:600; margin-bottom:16px;">Agregar pedido — Mesa ${mesaSeleccionada}</div>
-      <div id="pedido-items-scroll" style="display:flex; flex-direction:column; gap:16px; max-height:380px; overflow-y:auto; margin-bottom:16px;">
-        ${Object.keys(categorias).map(cat => `
-          <div>
-            <div style="font-size:13px; color:var(--copper); font-style:italic; margin-bottom:8px;">${cat}</div>
-            ${categorias[cat].map(it => {
-              const cant = carritoMesa[it.id] || 0;
-              return `
-                <div style="display:flex; align-items:center; justify-content:space-between; padding:7px 0;">
-                  <div style="font-size:15px;">
-                    <div>${it.nombre}</div>
-                    <div style="color:var(--text-dim); font-size:13px;">${money(it.precio)}</div>
-                  </div>
-                  <div style="display:flex; align-items:center; gap:10px;">
-                    <button class="icon-btn pedido-menos" data-id="${it.id}" style="width:30px; height:30px; padding:0; font-size:16px;">−</button>
-                    <span style="min-width:18px; text-align:center; font-size:15px;">${cant}</span>
-                    <button class="icon-btn pedido-mas" data-id="${it.id}" style="width:30px; height:30px; padding:0; font-size:16px;">+</button>
-                  </div>
-                </div>
-              `;
-            }).join('')}
-          </div>
-        `).join('')}
-      </div>
-      <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--line); padding-top:16px;">
-        <span style="font-family:'Fraunces',serif; font-style:italic; color:var(--copper); font-size:1.3rem;">${money(totalCarrito)}</span>
-        <button class="btn-primary" id="btn-enviar-pedido-mesa" ${hayItems ? '' : 'disabled'} style="padding:12px 22px; font-size:1rem;">Generar ticket</button>
-      </div>
-      </div>
-    `;
-
-    const scrollNuevo = document.getElementById('pedido-items-scroll');
-    if (scrollNuevo) scrollNuevo.scrollTop = scrollPrevio;
-
-    cont.querySelectorAll('.pedido-mas').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const id = btn.dataset.id;
-        carritoMesa[id] = (carritoMesa[id] || 0) + 1;
-        renderPedidoMesa();
-      });
-    });
-    cont.querySelectorAll('.pedido-menos').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const id = btn.dataset.id;
-        carritoMesa[id] = Math.max((carritoMesa[id] || 0) - 1, 0);
-        renderPedidoMesa();
-      });
-    });
-
-    const btnEnviar = document.getElementById('btn-enviar-pedido-mesa');
-    if (btnEnviar) {
-      btnEnviar.addEventListener('click', async () => {
-        const items = Object.entries(carritoMesa)
-          .filter(([, cant]) => cant > 0)
-          .map(([id, cant]) => {
-            const item = menuCache.find(m => String(m.id) === String(id));
-            return { nombre: item.nombre, precio: item.precio, cantidad: cant };
-          });
-        if (!items.length) return;
-        const total = items.reduce((acc, it) => acc + it.precio * it.cantidad, 0);
-
-        btnEnviar.disabled = true;
-        btnEnviar.textContent = 'Enviando…';
-        try {
-          await sbRpc('agregar_pedido_mesa', { p_mesa: mesaSeleccionada, p_items: items, p_total: total, p_embajadora: null });
-        } catch (err) {
-          alert('No se pudo generar el ticket: ' + err.message);
-          btnEnviar.disabled = false;
-          btnEnviar.textContent = 'Generar ticket';
-          return;
-        }
-        carritoMesa = {};
-        mostrarTicketMesa = false;
-        cargarPedidos();
-        cargarMesas();
-      });
+    try {
+      await sbInsert('solicitudes_ticket', { mesa: mesa.mesa, pedido_id: mesa.pedido_activo_id });
+      mostrarAvisoPanel(`🖨️ Ticket de la Mesa ${mesa.mesa} enviado a la comandera.`);
+    } catch (err) {
+      alert('No se pudo pedir el ticket: ' + err.message);
     }
   }
 
@@ -3238,7 +3143,7 @@ var qrcode = function() {
       html += `
         <p style="font-size:16px; margin-bottom:22px;">Ocupada — <b>${mesa.personas || '?'} personas</b></p>
         <div style="display:flex; gap:10px;">
-          <button class="btn-primary" id="btn-ticket" style="padding:12px 20px; font-size:1rem;">${mostrarTicketMesa ? 'Ocultar carta' : 'Ticket'}</button>
+          <button class="btn-primary" id="btn-ticket" style="padding:12px 20px; font-size:1rem;">Ticket</button>
           <button class="icon-btn" id="btn-liberar" style="width:auto; padding:11px 18px; font-size:1rem;">Liberar mesa</button>
         </div>
       `;
@@ -3301,13 +3206,10 @@ var qrcode = function() {
         try {
           await sbUpdateMesa(mesa.mesa, { estado: 'disponible', personas: null, reserva_id: null, pedido_activo_id: null });
         } catch (err) { alert('No se pudo liberar la mesa: ' + err.message); return; }
-        mostrarTicketMesa = false;
         cargarMesas();
       });
       document.getElementById('btn-ticket').addEventListener('click', () => {
-        mostrarTicketMesa = !mostrarTicketMesa;
-        renderPedidoMesa();
-        renderDetalleMesa();
+        pedirTicket(mesa);
       });
     }
 
