@@ -133,10 +133,13 @@
           <div style="font-size:12px;color:var(--text-dim);">Panel de gestión</div>
         </div>
       </div>
-      <button class="btn-ghost" id="logout-btn">Cerrar sesión</button>
+      <div style="display:flex; gap:10px; align-items:center;">
+        <button class="icon-btn" id="btn-historial" style="width:auto; padding:8px 14px; font-size:0.85rem;">Historial de pedidos</button>
+        <button class="btn-ghost" id="logout-btn">Cerrar sesión</button>
+      </div>
     </header>
 
-    <nav class="tabs">
+    <nav class="tabs" id="nav-tabs">
       <button data-tab="reservas" class="active">Reservas</button>
       <button data-tab="calendario">Calendario</button>
       <button data-tab="pedidos">Pedidos por mesa</button>
@@ -147,6 +150,7 @@
       <button data-tab="cocteleria">Coctelería</button>
       <button data-tab="cocina">Cocina</button>
       <button data-tab="atencion">Atención</button>
+      <button data-tab="tiempos">Tiempos</button>
     </nav>
 
     <section class="panel active" id="panel-reservas">
@@ -184,7 +188,7 @@
 
     <section class="panel" id="panel-pedidos">
       <div class="section-head">
-        <div><h2>Pedidos por mesa</h2><p>Los que llegan desde los QR de cada mesa.</p></div>
+        <div><h2>Pedidos por mesa</h2><p>Los de hoy, que llegan desde los QR de cada mesa. Para otras fechas, mirá "Historial de pedidos".</p></div>
       </div>
       <div id="pedidos-list"><p class="empty">Cargando…</p></div>
     </section>
@@ -301,6 +305,38 @@
         <div><h2>Atención</h2><p>Listo para retirar y entregar en la mesa.</p></div>
       </div>
       <div id="atencion-lista" style="display:flex; flex-direction:column; gap:12px;"><p class="empty">Cargando…</p></div>
+    </section>
+
+    <section class="panel" id="panel-tiempos">
+      <div class="section-head">
+        <div><h2>Tiempos</h2><p>Cuánto tarda cada etapa: pedido → listo → entregado.</p></div>
+      </div>
+      <div id="tiempos-resumen" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px; margin-bottom:28px;">
+        <p class="empty">Cargando…</p>
+      </div>
+      <div class="tabla-wrap">
+        <table>
+          <thead><tr><th>Mesa</th><th>Producto</th><th>Tipo</th><th>Preparación</th><th>Entrega</th></tr></thead>
+          <tbody id="tiempos-body"><tr><td colspan="5" class="empty">Cargando…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-historial">
+      <div class="section-head">
+        <div><h2>Historial de pedidos</h2><p>Cada pedido con lo que tardó cada etapa.</p></div>
+        <button class="icon-btn" id="btn-volver-historial" style="width:auto; padding:8px 14px;">← Volver al panel</button>
+      </div>
+      <div style="margin-bottom:20px;">
+        <input type="date" id="historial-filtro-fecha" style="padding:9px 12px;">
+        <button class="icon-btn" id="historial-limpiar-filtro" style="width:auto; padding:9px 14px;">Ver todas</button>
+      </div>
+      <div class="tabla-wrap">
+        <table>
+          <thead><tr><th>Mesa</th><th>Fecha</th><th>Precio</th><th>Cocina</th><th>Coctelería</th><th>Entrega</th></tr></thead>
+          <tbody id="historial-body"><tr><td colspan="6" class="empty">Cargando…</td></tr></tbody>
+        </table>
+      </div>
     </section>
   </div>
 </div>
@@ -2825,8 +2861,8 @@ var qrcode = function() {
   let rolActual = 'dueno';
 
   const TABS_POR_ROL = {
-    dueno: ['reservas','calendario','pedidos','precios','clientes','mesas','embajadoras','cocteleria','cocina','atencion'],
-    recepcion: ['reservas','calendario','pedidos','precios','clientes','mesas','embajadoras','cocteleria','cocina','atencion'],
+    dueno: ['reservas','calendario','pedidos','precios','clientes','mesas','embajadoras','cocteleria','cocina','atencion','tiempos'],
+    recepcion: ['reservas','calendario','pedidos','precios','clientes','mesas','embajadoras','cocteleria','cocina','atencion','tiempos'],
     cocteleria: ['cocteleria'],
     cocina: ['cocina'],
     atencion: ['atencion'],
@@ -2871,6 +2907,7 @@ var qrcode = function() {
     cargarCocteleria();
     cargarCocina();
     cargarAtencion();
+    cargarTiempos();
     suscribirRealtime();
   }
 
@@ -2889,6 +2926,7 @@ var qrcode = function() {
       if (btn.dataset.tab === 'cocteleria') cargarCocteleria();
       if (btn.dataset.tab === 'cocina') cargarCocina();
       if (btn.dataset.tab === 'atencion') cargarAtencion();
+      if (btn.dataset.tab === 'tiempos') cargarTiempos();
     });
   });
 
@@ -2952,6 +2990,173 @@ var qrcode = function() {
     await cargarItemsFiltrados('atencion-lista', it => it.estado === 'listo', 'entregado', 'Marcar entregado');
   }
 
+  // ---------- TIEMPOS ----------
+  function formatearDuracion(ms){
+    if (ms === null || ms === undefined || ms < 0) return '—';
+    const min = Math.round(ms / 60000);
+    if (min < 1) return '<1 min';
+    if (min < 60) return `${min} min`;
+    const h = Math.floor(min / 60);
+    const restoMin = min % 60;
+    return `${h}h ${restoMin}min`;
+  }
+
+  async function cargarTiempos(){
+    const resumenCont = document.getElementById('tiempos-resumen');
+    const bodyCont = document.getElementById('tiempos-body');
+    let data;
+    try {
+      data = await sbSelect('pedidos', 'select=id,mesa,items&order=creado_en.desc&limit=100');
+    } catch (err) {
+      resumenCont.innerHTML = `<p class="empty">Error al cargar (${err.message}).</p>`;
+      return;
+    }
+
+    const filas = [];
+    (data || []).forEach(p => {
+      (p.items || []).forEach(it => {
+        if (!it.creado_en) return; // ítems viejos, de antes de este cambio
+        filas.push({ mesa: p.mesa, item: it });
+      });
+    });
+
+    // Más recientes primero
+    filas.sort((a, b) => new Date(b.item.creado_en) - new Date(a.item.creado_en));
+
+    const prepCocina = [];
+    const prepCocteleria = [];
+    const entregas = [];
+
+    filas.forEach(f => {
+      const it = f.item;
+      const tCreado = new Date(it.creado_en).getTime();
+      if (it.listo_en) {
+        const tListo = new Date(it.listo_en).getTime();
+        const dur = tListo - tCreado;
+        if (it.tipo === 'cocina') prepCocina.push(dur); else prepCocteleria.push(dur);
+        if (it.entregado_en) {
+          const tEntregado = new Date(it.entregado_en).getTime();
+          entregas.push(tEntregado - tListo);
+        }
+      }
+    });
+
+    const promedio = arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
+
+    resumenCont.innerHTML = `
+      <div style="border:1px solid var(--line); border-radius:4px; padding:16px 18px;">
+        <div style="font-size:12px; color:var(--text-dim); text-transform:uppercase;">Promedio Cocina</div>
+        <div style="font-family:'Fraunces',serif; font-style:italic; color:var(--copper); font-size:1.6rem; margin-top:6px;">${formatearDuracion(promedio(prepCocina))}</div>
+        <div style="font-size:12px; color:var(--text-dim);">${prepCocina.length} ítems</div>
+      </div>
+      <div style="border:1px solid var(--line); border-radius:4px; padding:16px 18px;">
+        <div style="font-size:12px; color:var(--text-dim); text-transform:uppercase;">Promedio Coctelería</div>
+        <div style="font-family:'Fraunces',serif; font-style:italic; color:var(--copper); font-size:1.6rem; margin-top:6px;">${formatearDuracion(promedio(prepCocteleria))}</div>
+        <div style="font-size:12px; color:var(--text-dim);">${prepCocteleria.length} ítems</div>
+      </div>
+      <div style="border:1px solid var(--line); border-radius:4px; padding:16px 18px;">
+        <div style="font-size:12px; color:var(--text-dim); text-transform:uppercase;">Promedio Entrega (mozo)</div>
+        <div style="font-family:'Fraunces',serif; font-style:italic; color:var(--copper); font-size:1.6rem; margin-top:6px;">${formatearDuracion(promedio(entregas))}</div>
+        <div style="font-size:12px; color:var(--text-dim);">${entregas.length} ítems</div>
+      </div>
+    `;
+
+    if (!filas.length) { bodyCont.innerHTML = `<tr><td colspan="5" class="empty">Todavía no hay datos de tiempos.</td></tr>`; return; }
+
+    bodyCont.innerHTML = filas.slice(0, 40).map(f => {
+      const it = f.item;
+      const tCreado = new Date(it.creado_en).getTime();
+      const tPrep = it.listo_en ? (new Date(it.listo_en).getTime() - tCreado) : null;
+      const tEntrega = (it.listo_en && it.entregado_en) ? (new Date(it.entregado_en).getTime() - new Date(it.listo_en).getTime()) : null;
+      return `
+        <tr>
+          <td>${f.mesa}</td>
+          <td>${it.cantidad}x ${it.nombre}</td>
+          <td>${it.tipo === 'cocina' ? 'Cocina' : 'Coctelería'}</td>
+          <td>${formatearDuracion(tPrep)}</td>
+          <td>${formatearDuracion(tEntrega)}</td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  // ---------- HISTORIAL DE PEDIDOS (acceso aparte, no es una pestaña) ----------
+  let tabActivaAntesDeHistorial = null;
+
+  document.getElementById('btn-historial').addEventListener('click', () => {
+    const activo = document.querySelector('nav.tabs button.active');
+    tabActivaAntesDeHistorial = activo ? activo.dataset.tab : null;
+    document.getElementById('nav-tabs').style.display = 'none';
+    document.querySelectorAll('section.panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('panel-historial').classList.add('active');
+    document.getElementById('historial-filtro-fecha').value = '';
+    cargarHistorial();
+  });
+
+  document.getElementById('btn-volver-historial').addEventListener('click', () => {
+    document.getElementById('panel-historial').classList.remove('active');
+    document.getElementById('nav-tabs').style.display = '';
+    const permitidas = TABS_POR_ROL[rolActual] || TABS_POR_ROL.dueno;
+    const tab = (tabActivaAntesDeHistorial && permitidas.includes(tabActivaAntesDeHistorial)) ? tabActivaAntesDeHistorial : permitidas[0];
+    document.querySelector(`nav.tabs button[data-tab="${tab}"]`)?.classList.add('active');
+    document.getElementById('panel-' + tab)?.classList.add('active');
+  });
+
+  document.getElementById('historial-filtro-fecha').addEventListener('change', () => cargarHistorial());
+  document.getElementById('historial-limpiar-filtro').addEventListener('click', () => {
+    document.getElementById('historial-filtro-fecha').value = '';
+    cargarHistorial();
+  });
+
+  async function cargarHistorial(){
+    const body = document.getElementById('historial-body');
+    const fechaFiltro = document.getElementById('historial-filtro-fecha').value; // "YYYY-MM-DD" o vacío
+
+    let query = 'select=id,mesa,items,total,creado_en&order=creado_en.desc&limit=200';
+    if (fechaFiltro) {
+      const desde = `${fechaFiltro}T00:00:00`;
+      const hasta = `${fechaFiltro}T23:59:59`;
+      query += `&creado_en=gte.${desde}&creado_en=lte.${hasta}`;
+    }
+
+    let data;
+    try {
+      data = await sbSelect('pedidos', query);
+    } catch (err) {
+      body.innerHTML = `<tr><td colspan="6" class="empty">Error al cargar (${err.message}).</td></tr>`; return;
+    }
+
+    if (!data.length) { body.innerHTML = `<tr><td colspan="6" class="empty">No hay pedidos para mostrar.</td></tr>`; return; }
+
+    function maxDuracion(items, filtroFn, campoInicio, campoFin){
+      let max = null;
+      items.forEach(it => {
+        if (!filtroFn(it)) return;
+        if (!it[campoInicio] || !it[campoFin]) return;
+        const dur = new Date(it[campoFin]).getTime() - new Date(it[campoInicio]).getTime();
+        if (max === null || dur > max) max = dur;
+      });
+      return max;
+    }
+
+    body.innerHTML = data.map(p => {
+      const items = p.items || [];
+      const tCocina = maxDuracion(items, it => it.tipo === 'cocina', 'creado_en', 'listo_en');
+      const tCocteleria = maxDuracion(items, it => it.tipo === 'cocteleria', 'creado_en', 'listo_en');
+      const tEntrega = maxDuracion(items, () => true, 'listo_en', 'entregado_en');
+      const fecha = new Date(p.creado_en).toLocaleString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
+      return `
+        <tr>
+          <td>${p.mesa}</td>
+          <td>${fecha}</td>
+          <td>${money(p.total)}</td>
+          <td>${formatearDuracion(tCocina)}</td>
+          <td>${formatearDuracion(tCocteleria)}</td>
+          <td>${formatearDuracion(tEntrega)}</td>
+        </tr>
+      `;
+    }).join('');
+  }
 
   // ---------- RESERVAS ----------
   let reservasCache = [];
@@ -3040,8 +3245,14 @@ var qrcode = function() {
   async function cargarPedidos(){
     const cont = document.getElementById('pedidos-list');
     let data;
+    const hoy = new Date();
+    const yyyy = hoy.getFullYear();
+    const mm = String(hoy.getMonth() + 1).padStart(2, '0');
+    const dd = String(hoy.getDate()).padStart(2, '0');
+    const desde = `${yyyy}-${mm}-${dd}T00:00:00`;
+    const hasta = `${yyyy}-${mm}-${dd}T23:59:59`;
     try {
-      data = await sbSelect('pedidos', 'select=*&order=creado_en.desc');
+      data = await sbSelect('pedidos', `select=*&creado_en=gte.${desde}&creado_en=lte.${hasta}&order=creado_en.desc`);
     } catch (err) {
       cont.innerHTML = `<p class="empty">Error al cargar (${err.message}).</p>`; return;
     }
