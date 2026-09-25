@@ -3114,8 +3114,8 @@ var qrcode = function() {
 
     let query = 'select=id,mesa,items,total,creado_en&order=creado_en.desc&limit=200';
     if (fechaFiltro) {
-      const desde = `${fechaFiltro}T00:00:00`;
-      const hasta = `${fechaFiltro}T23:59:59`;
+      const [y, m, d] = fechaFiltro.split('-').map(Number);
+      const { desde, hasta } = limitesDelDia(y, m, d);
       query += `&creado_en=gte.${desde}&creado_en=lte.${hasta}`;
     }
 
@@ -3242,15 +3242,30 @@ var qrcode = function() {
   }
 
   // ---------- PEDIDOS ----------
+  function fechaLocalISO(date){
+    // "YYYY-MM-DD" en hora LOCAL del navegador (nunca usar
+    // toISOString().slice(0,10) para esto: convierte a UTC primero
+    // y de noche en Argentina puede devolver el día siguiente).
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  function limitesDelDia(yyyy, mm, dd){
+    // Construye el inicio y fin de un día en la hora LOCAL del navegador,
+    // y los convierte a UTC correctamente con toISOString() — evita el
+    // bug de comparar fechas como si el navegador estuviera en UTC.
+    const inicio = new Date(yyyy, mm - 1, dd, 0, 0, 0, 0);
+    const fin = new Date(yyyy, mm - 1, dd, 23, 59, 59, 999);
+    return { desde: inicio.toISOString(), hasta: fin.toISOString() };
+  }
+
   async function cargarPedidos(){
     const cont = document.getElementById('pedidos-list');
     let data;
     const hoy = new Date();
-    const yyyy = hoy.getFullYear();
-    const mm = String(hoy.getMonth() + 1).padStart(2, '0');
-    const dd = String(hoy.getDate()).padStart(2, '0');
-    const desde = `${yyyy}-${mm}-${dd}T00:00:00`;
-    const hasta = `${yyyy}-${mm}-${dd}T23:59:59`;
+    const { desde, hasta } = limitesDelDia(hoy.getFullYear(), hoy.getMonth() + 1, hoy.getDate());
     try {
       data = await sbSelect('pedidos', `select=*&creado_en=gte.${desde}&creado_en=lte.${hasta}&order=creado_en.desc`);
     } catch (err) {
@@ -3624,7 +3639,7 @@ var qrcode = function() {
       });
 
       // Picker de reservas de hoy, sin asignar todavía
-      const hoy = new Date().toISOString().slice(0, 10);
+      const hoy = fechaLocalISO(new Date());
       const asignadas = new Set(mesasCache.filter(m => m.reserva_id).map(m => m.reserva_id));
       const disponiblesHoy = reservasCache.filter(r =>
         r.fecha === hoy && r.estado !== 'cancelada' && !asignadas.has(r.id)
@@ -3810,7 +3825,7 @@ var qrcode = function() {
   const hoy = new Date();
   let calYear = hoy.getFullYear();
   let calMonth = hoy.getMonth(); // 0-11
-  let calSelected = hoy.toISOString().slice(0,10);
+  let calSelected = fechaLocalISO(hoy);
 
   document.getElementById('cal-dow-row').innerHTML = DIAS.map(d => `<div class="cal-dow">${d}</div>`).join('');
   document.getElementById('cal-prev').addEventListener('click', () => { calMonth--; if (calMonth<0){calMonth=11;calYear--;} renderCalendario(); });
