@@ -243,6 +243,7 @@
             <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#C68A4C; margin-right:5px;"></span>Reservada</span>
             <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#C97878; margin-right:5px;"></span>Ocupada</span>
           </div>
+          <button class="icon-btn" id="btn-agregar-mesa" style="width:auto; padding:8px 14px; display:none;">+ Agregar mesa</button>
           <button class="icon-btn" id="btn-editar-plano" style="width:auto; padding:8px 14px; display:none;">Editar plano</button>
         </div>
       </div>
@@ -2806,6 +2807,14 @@ var qrcode = function() {
     if (!res.ok) throw new Error(`Supabase respondió ${res.status} en mesas_estado`);
   }
 
+  async function sbDeleteMesa(mesa){
+    const res = await fetchAutenticado(`${SUPABASE_URL}/rest/v1/mesas_estado?mesa=eq.${mesa}`, {
+      method: 'DELETE',
+    });
+    if (res.status === 401) { manejarSesionExpirada(); throw new Error('Sesión expirada'); }
+    if (!res.ok) throw new Error(`Supabase respondió ${res.status} en mesas_estado`);
+  }
+
   async function sbDeleteEmbajadora(nombre){
     const res = await fetchAutenticado(`${SUPABASE_URL}/rest/v1/embajadoras?nombre=eq.${encodeURIComponent(nombre)}`, {
       method: 'DELETE',
@@ -3540,6 +3549,8 @@ var qrcode = function() {
     // El botón de editar plano solo lo ve el dueño
     const btnEditar = document.getElementById('btn-editar-plano');
     if (btnEditar) btnEditar.style.display = (rolActual === 'dueno') ? '' : 'none';
+    const btnAgregarMesa = document.getElementById('btn-agregar-mesa');
+    if (btnAgregarMesa) btnAgregarMesa.style.display = (rolActual === 'dueno') ? '' : 'none';
 
     renderCanvasMesas();
     renderDetalleMesa();
@@ -3649,6 +3660,18 @@ var qrcode = function() {
       });
     });
   }
+
+  document.getElementById('btn-agregar-mesa').addEventListener('click', async () => {
+    const numeros = mesasCache.map(m => m.mesa);
+    const siguiente = numeros.length ? Math.max(...numeros) + 1 : 1;
+    try {
+      await sbInsert('mesas_estado', { mesa: siguiente, estado: 'disponible', pos_x: 20, pos_y: 20 });
+    } catch (err) {
+      alert('No se pudo agregar la mesa: ' + err.message); return;
+    }
+    mostrarAvisoPanel(`Mesa ${siguiente} agregada — arrastrala a su lugar en "Editar plano".`);
+    await cargarMesas();
+  });
 
   document.getElementById('btn-editar-plano').addEventListener('click', async () => {
     if (!modoEdicionMesas) {
@@ -3804,9 +3827,25 @@ var qrcode = function() {
     if (!mesa) { cont.innerHTML = `<p class="empty">Mesa no encontrada.</p>`; return; }
 
     const zona = mesa.mesa <= 20 ? 'Terraza' : 'Interior / Salón';
+    const linkPedido = `${window.location.origin}/pedir.html?mesa=${mesa.mesa}`;
+    let qrDataUrl = '';
+    try {
+      const qr = qrcode(0, 'M');
+      qr.addData(linkPedido);
+      qr.make();
+      qrDataUrl = qr.createDataURL(4, 4);
+    } catch (err) { console.error('No se pudo generar el QR de la mesa', err); }
+
     let html = `
       <h3 style="font-family:'Fraunces',serif; font-size:1.7rem; margin-bottom:6px;">Mesa ${mesa.mesa}</h3>
-      <p style="font-size:14px; color:var(--text-dim); margin:0 0 22px;">${zona}</p>
+      <p style="font-size:14px; color:var(--text-dim); margin:0 0 16px;">${zona}</p>
+      <div style="display:flex; align-items:center; gap:12px; margin-bottom:22px; padding-bottom:20px; border-bottom:1px solid var(--line);">
+        ${qrDataUrl ? `<img src="${qrDataUrl}" alt="QR mesa ${mesa.mesa}" style="width:64px; height:64px; border-radius:4px; background:#fff; padding:3px;">` : ''}
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <button class="icon-btn" id="btn-copiar-link-mesa" style="width:auto; padding:0 10px; font-size:11px; height:26px;">Copiar link</button>
+          ${qrDataUrl ? `<a href="${qrDataUrl}" download="qr-mesa-${mesa.mesa}.gif" class="icon-btn" style="width:auto; padding:0 10px; font-size:11px; height:26px; display:inline-flex; align-items:center; text-decoration:none;">Descargar QR</a>` : ''}
+        </div>
+      </div>
     `;
 
     if (mesa.estado === 'disponible') {
@@ -3845,7 +3884,32 @@ var qrcode = function() {
       `;
     }
 
+    if (mesa.estado === 'disponible' && rolActual === 'dueno') {
+      html += `
+        <div style="margin-top:26px; padding-top:18px; border-top:1px solid var(--line);">
+          <button class="icon-btn" id="btn-eliminar-mesa" style="width:auto; padding:9px 16px; font-size:0.85rem; color:#C97878; border-color:#C97878;">Eliminar mesa</button>
+        </div>
+      `;
+    }
+
     cont.innerHTML = html;
+
+    document.getElementById('btn-copiar-link-mesa')?.addEventListener('click', () => {
+      navigator.clipboard.writeText(linkPedido).then(() => {
+        const btn = document.getElementById('btn-copiar-link-mesa');
+        btn.textContent = '✓ Copiado';
+        setTimeout(() => { btn.textContent = 'Copiar link'; }, 1500);
+      }).catch(() => alert('No se pudo copiar. Link: ' + linkPedido));
+    });
+
+    document.getElementById('btn-eliminar-mesa')?.addEventListener('click', async () => {
+      if (!confirm(`¿Eliminar la Mesa ${mesa.mesa}? Su QR dejaría de funcionar.`)) return;
+      try {
+        await sbDeleteMesa(mesa.mesa);
+      } catch (err) { alert('No se pudo eliminar: ' + err.message); return; }
+      mesaSeleccionada = null;
+      await cargarMesas();
+    });
 
     if (mesa.estado === 'disponible') {
       document.getElementById('btn-ocupar').addEventListener('click', async () => {
