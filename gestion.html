@@ -327,6 +327,16 @@
         <div><h2>Historial de pedidos</h2><p>Cada pedido con lo que tardó cada etapa.</p></div>
         <button class="icon-btn" id="btn-volver-historial" style="width:auto; padding:8px 14px;">← Volver al panel</button>
       </div>
+
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+        <button class="icon-btn" id="semana-anterior" style="width:auto; padding:8px 14px;">← Semana anterior</button>
+        <div id="historial-semana-label" style="font-family:'Fraunces',serif; font-style:italic; color:var(--copper);"></div>
+        <button class="icon-btn" id="semana-siguiente" style="width:auto; padding:8px 14px;">Semana siguiente →</button>
+      </div>
+      <div id="historial-semana" style="display:grid; grid-template-columns:repeat(7, 1fr); gap:10px; margin-bottom:28px;">
+        <p class="empty">Cargando…</p>
+      </div>
+
       <div style="margin-bottom:20px;">
         <input type="date" id="historial-filtro-fecha" style="padding:9px 12px;">
         <button class="icon-btn" id="historial-limpiar-filtro" style="width:auto; padding:9px 14px;">Ver todas</button>
@@ -3103,6 +3113,7 @@ var qrcode = function() {
 
   // ---------- HISTORIAL DE PEDIDOS (acceso aparte, no es una pestaña) ----------
   let tabActivaAntesDeHistorial = null;
+  let historialSemanaRef = new Date();
 
   document.getElementById('btn-historial').addEventListener('click', () => {
     const activo = document.querySelector('nav.tabs button.active');
@@ -3111,6 +3122,8 @@ var qrcode = function() {
     document.querySelectorAll('section.panel').forEach(p => p.classList.remove('active'));
     document.getElementById('panel-historial').classList.add('active');
     document.getElementById('historial-filtro-fecha').value = '';
+    historialSemanaRef = new Date();
+    cargarHistorialSemana();
     cargarHistorial();
   });
 
@@ -3122,6 +3135,72 @@ var qrcode = function() {
     document.querySelector(`nav.tabs button[data-tab="${tab}"]`)?.classList.add('active');
     document.getElementById('panel-' + tab)?.classList.add('active');
   });
+
+  document.getElementById('semana-anterior').addEventListener('click', () => {
+    historialSemanaRef.setDate(historialSemanaRef.getDate() - 7);
+    cargarHistorialSemana();
+  });
+  document.getElementById('semana-siguiente').addEventListener('click', () => {
+    historialSemanaRef.setDate(historialSemanaRef.getDate() + 7);
+    cargarHistorialSemana();
+  });
+
+  function lunesDeLaSemana(fecha){
+    const d = new Date(fecha);
+    const dia = d.getDay(); // 0=domingo, 1=lunes, ... 6=sábado
+    const diff = (dia === 0 ? -6 : 1 - dia);
+    d.setDate(d.getDate() + diff);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+
+  async function cargarHistorialSemana(){
+    const cont = document.getElementById('historial-semana');
+    const lunes = lunesDeLaSemana(historialSemanaRef);
+    const domingo = new Date(lunes);
+    domingo.setDate(domingo.getDate() + 6);
+
+    const { desde } = limitesDelDia(lunes.getFullYear(), lunes.getMonth() + 1, lunes.getDate());
+    const { hasta } = limitesDelDia(domingo.getFullYear(), domingo.getMonth() + 1, domingo.getDate());
+
+    document.getElementById('historial-semana-label').textContent =
+      `Semana del ${lunes.toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit' })} al ${domingo.toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit' })}`;
+
+    let data;
+    try {
+      data = await sbSelect('pedidos', `select=id,total,creado_en&creado_en=gte.${desde}&creado_en=lte.${hasta}`);
+    } catch (err) {
+      cont.innerHTML = `<p class="empty">Error al cargar (${err.message}).</p>`; return;
+    }
+
+    const nombresDias = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+    const resumen = [];
+    for (let i = 0; i < 7; i++) {
+      const dia = new Date(lunes);
+      dia.setDate(dia.getDate() + i);
+      const fechaStr = fechaLocalISO(dia);
+      const pedidosDelDia = (data || []).filter(p => fechaLocalISO(new Date(p.creado_en)) === fechaStr);
+      const total = pedidosDelDia.reduce((acc, p) => acc + Number(p.total || 0), 0);
+      resumen.push({ nombre: nombresDias[i], dia, fechaStr, cantidad: pedidosDelDia.length, total });
+    }
+
+    const hoyStr = fechaLocalISO(new Date());
+    cont.innerHTML = resumen.map(d => `
+      <button class="dia-card" data-fecha="${d.fechaStr}" style="border:1px solid ${d.fechaStr === hoyStr ? 'var(--copper)' : 'var(--line)'}; border-radius:6px; padding:14px 12px; text-align:left; cursor:pointer; background:transparent; color:var(--text); font-family:'Archivo',sans-serif;">
+        <div style="font-size:11px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.02em;">${d.nombre}</div>
+        <div style="font-size:11px; color:var(--text-dim); margin-bottom:10px;">${d.dia.toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit' })}</div>
+        <div style="font-size:13px;">${d.cantidad} pedido${d.cantidad === 1 ? '' : 's'}</div>
+        <div style="font-family:'Fraunces',serif; font-style:italic; color:var(--copper); font-size:1.05rem; margin-top:4px;">${money(d.total)}</div>
+      </button>
+    `).join('');
+
+    cont.querySelectorAll('.dia-card').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.getElementById('historial-filtro-fecha').value = btn.dataset.fecha;
+        cargarHistorial();
+      });
+    });
+  }
 
   document.getElementById('historial-filtro-fecha').addEventListener('change', () => cargarHistorial());
   document.getElementById('historial-limpiar-filtro').addEventListener('click', () => {
@@ -3931,6 +4010,12 @@ var qrcode = function() {
       if (rolActual === 'dueno' || rolActual === 'recepcion') {
         cargarReservas();
         cargarPedidos();
+        cargarMenu();
+        cargarPromos();
+        cargarClientes();
+        cargarMesas();
+        cargarEmbajadoras();
+        cargarTiempos();
       }
       cargarCocteleria();
       cargarCocina();
