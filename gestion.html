@@ -3661,11 +3661,27 @@ var qrcode = function() {
     });
   }
 
+  function encontrarPosicionLibre(){
+    const paso = 90;
+    for (let y = 20; y <= CANVAS_H - TILE_SIZE; y += paso) {
+      for (let x = 20; x <= CANVAS_W - TILE_SIZE; x += paso) {
+        const ocupado = mesasCache.some(m => {
+          const mx = m.pos_x != null ? m.pos_x : 20;
+          const my = m.pos_y != null ? m.pos_y : 20;
+          return Math.abs(x - mx) < TILE_SIZE - 4 && Math.abs(y - my) < TILE_SIZE - 4;
+        });
+        if (!ocupado) return { x, y };
+      }
+    }
+    return { x: 20, y: 20 }; // el plano está lleno, no debería pasar en la práctica
+  }
+
   document.getElementById('btn-agregar-mesa').addEventListener('click', async () => {
     const numeros = mesasCache.map(m => m.mesa);
     const siguiente = numeros.length ? Math.max(...numeros) + 1 : 1;
+    const { x, y } = encontrarPosicionLibre();
     try {
-      await sbInsert('mesas_estado', { mesa: siguiente, estado: 'disponible', pos_x: 20, pos_y: 20 });
+      await sbInsert('mesas_estado', { mesa: siguiente, estado: 'disponible', pos_x: x, pos_y: y });
     } catch (err) {
       alert('No se pudo agregar la mesa: ' + err.message); return;
     }
