@@ -235,27 +235,18 @@
 
     <section class="panel" id="panel-mesas">
       <div class="section-head">
-        <div><h2>Plano de mesas</h2><p>Tocá una mesa para ver sus opciones.</p></div>
-        <div style="display:flex; gap:14px; font-size:12px; color:var(--text-dim);">
-          <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#7C8A5E; margin-right:5px;"></span>Disponible</span>
-          <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#C68A4C; margin-right:5px;"></span>Reservada</span>
-          <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#C97878; margin-right:5px;"></span>Ocupada</span>
+        <div><h2>Plano de mesas</h2><p id="mesas-instrucciones">Tocá una mesa para ver sus opciones.</p></div>
+        <div style="display:flex; align-items:center; gap:16px;">
+          <div id="mesas-leyenda" style="display:flex; gap:14px; font-size:12px; color:var(--text-dim);">
+            <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#7C8A5E; margin-right:5px;"></span>Disponible</span>
+            <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#C68A4C; margin-right:5px;"></span>Reservada</span>
+            <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#C97878; margin-right:5px;"></span>Ocupada</span>
+          </div>
+          <button class="icon-btn" id="btn-editar-plano" style="width:auto; padding:8px 14px; display:none;">Editar plano</button>
         </div>
       </div>
-      <div style="display:grid; grid-template-columns:auto 1fr; gap:32px;">
-        <div style="display:flex; flex-direction:column; gap:30px;">
-          <div>
-            <div style="font-family:'Fraunces',serif; font-style:italic; color:var(--copper); margin-bottom:12px;">Terraza</div>
-            <div id="mesas-grid-terraza" style="display:grid; grid-template-columns:repeat(10, 76px); gap:12px;">
-              <p class="empty">Cargando…</p>
-            </div>
-          </div>
-          <div>
-            <div style="font-family:'Fraunces',serif; font-style:italic; color:var(--copper); margin-bottom:12px;">Interior / Salón</div>
-            <div id="mesas-grid-interior" style="display:grid; grid-template-columns:repeat(10, 76px); gap:12px;">
-              <p class="empty">Cargando…</p>
-            </div>
-          </div>
+      <div style="display:grid; grid-template-columns:940px 1fr; gap:32px;">
+        <div id="mesas-canvas" style="position:relative; width:940px; height:520px; border:1px solid var(--line); border-radius:6px; background:var(--panel);">
         </div>
         <div style="display:flex; flex-direction:column; gap:20px; overflow-y:auto;">
           <div id="mesa-detalle" style="border:1px solid var(--line); border-radius:4px; padding:28px; font-size:1.08em;">
@@ -3524,60 +3515,173 @@ var qrcode = function() {
     reservada:  { bg: 'rgba(198,138,76,0.16)', fg: '#C68A4C', borde: '#C68A4C' },
     ocupada:    { bg: 'rgba(201,120,120,0.16)', fg: '#C97878', borde: '#C97878' },
   };
+  const TILE_SIZE = 70;
+  const CANVAS_W = 940;
+  const CANVAS_H = 520;
 
   let mesasCache = [];
   let menuCache = [];
   let mesaSeleccionada = null;
+  let modoEdicionMesas = false;
+  let posicionesEdicion = {}; // { mesa: {x, y} } — borrador mientras se edita, sin guardar todavía
 
   async function cargarMesas(){
-    const gridTerraza = document.getElementById('mesas-grid-terraza');
-    const gridInterior = document.getElementById('mesas-grid-interior');
+    const canvas = document.getElementById('mesas-canvas');
     let data;
     try {
       data = await sbSelect('mesas_estado', 'select=*&order=mesa.asc');
     } catch (err) {
-      gridTerraza.innerHTML = `<p class="empty">Error al cargar (${err.message}).</p>`;
+      canvas.innerHTML = `<p class="empty">Error al cargar (${err.message}).</p>`;
       return;
     }
     mesasCache = data || [];
 
-    const terraza = mesasCache.filter(m => m.mesa <= 20);
-    const interior = mesasCache.filter(m => m.mesa > 20);
+    // El botón de editar plano solo lo ve el dueño
+    const btnEditar = document.getElementById('btn-editar-plano');
+    if (btnEditar) btnEditar.style.display = (rolActual === 'dueno') ? '' : 'none';
 
-    function renderGrid(lista){
-      if (!lista.length) return `<p class="empty">No hay mesas cargadas.</p>`;
-      return lista.map(m => {
-        const est = ESTILO_ESTADO[m.estado] || ESTILO_ESTADO.disponible;
-        const sel = m.mesa === mesaSeleccionada;
-        return `
-          <button class="mesa-tile" data-mesa="${m.mesa}" style="
-            aspect-ratio:1; border-radius:8px; border:2px solid ${est.borde};
-            background:${est.bg}; color:${est.fg}; cursor:pointer;
-            display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
-            font-family:'Archivo',sans-serif; padding:6px;
-            ${sel ? 'box-shadow:0 0 0 2px var(--text);' : ''}">
-            <span style="font-family:'Fraunces',serif; font-size:1.2rem; font-style:italic; color:var(--text);">${m.mesa}</span>
-            ${m.estado === 'ocupada' && m.personas ? `<span style="font-size:10px;">${m.personas}p</span>` : ''}
-          </button>
-        `;
-      }).join('');
-    }
-
-    gridTerraza.innerHTML = renderGrid(terraza);
-    gridInterior.innerHTML = renderGrid(interior);
-
-    document.querySelectorAll('.mesa-tile').forEach(tile => {
-      tile.addEventListener('click', () => {
-        const nueva = Number(tile.dataset.mesa);
-        if (nueva !== mesaSeleccionada) { carritoTicket = {}; mostrarCartaTicket = false; }
-        mesaSeleccionada = nueva;
-        cargarMesas();
-      });
-    });
-
+    renderCanvasMesas();
     renderDetalleMesa();
     renderCartaTicket();
   }
+
+  function renderCanvasMesas(){
+    const canvas = document.getElementById('mesas-canvas');
+    if (!mesasCache.length) { canvas.innerHTML = `<p class="empty">No hay mesas cargadas.</p>`; return; }
+
+    canvas.innerHTML = mesasCache.map(m => {
+      const pos = modoEdicionMesas
+        ? (posicionesEdicion[m.mesa] || { x: m.pos_x || 20, y: m.pos_y || 20 })
+        : { x: m.pos_x || 20, y: m.pos_y || 20 };
+
+      let bg, borde, fg;
+      if (modoEdicionMesas) {
+        bg = 'rgba(143,128,114,0.14)'; borde = 'var(--text-dim)'; fg = 'var(--text)';
+      } else {
+        const est = ESTILO_ESTADO[m.estado] || ESTILO_ESTADO.disponible;
+        bg = est.bg; borde = est.borde; fg = est.fg;
+      }
+      const sel = !modoEdicionMesas && m.mesa === mesaSeleccionada;
+
+      return `
+        <div class="mesa-tile" data-mesa="${m.mesa}" style="
+          position:absolute; left:${pos.x}px; top:${pos.y}px;
+          width:${TILE_SIZE}px; height:${TILE_SIZE}px; border-radius:8px; border:2px solid ${borde};
+          background:${bg}; color:${fg}; cursor:${modoEdicionMesas ? 'grab' : 'pointer'};
+          display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+          font-family:'Archivo',sans-serif; user-select:none;
+          ${sel ? 'box-shadow:0 0 0 2px var(--text);' : ''}">
+          <span style="font-family:'Fraunces',serif; font-size:1.15rem; font-style:italic; color:var(--text);">${m.mesa}</span>
+          ${(!modoEdicionMesas && m.estado === 'ocupada' && m.personas) ? `<span style="font-size:10px;">${m.personas}p</span>` : ''}
+        </div>
+      `;
+    }).join('');
+
+    if (modoEdicionMesas) {
+      cablearArrastreMesas();
+    } else {
+      canvas.querySelectorAll('.mesa-tile').forEach(tile => {
+        tile.addEventListener('click', () => {
+          const nueva = Number(tile.dataset.mesa);
+          if (nueva !== mesaSeleccionada) { carritoTicket = {}; mostrarCartaTicket = false; }
+          mesaSeleccionada = nueva;
+          renderCanvasMesas();
+          renderDetalleMesa();
+          renderCartaTicket();
+        });
+      });
+    }
+  }
+
+  function cablearArrastreMesas(){
+    const canvas = document.getElementById('mesas-canvas');
+    const UMBRAL_IMAN = 12;
+
+    canvas.querySelectorAll('.mesa-tile').forEach(tile => {
+      const mesaNum = Number(tile.dataset.mesa);
+
+      tile.addEventListener('mousedown', (eInicio) => {
+        eInicio.preventDefault();
+        const canvasRect = canvas.getBoundingClientRect();
+        const posActual = posicionesEdicion[mesaNum] || { x: mesasCache.find(m => m.mesa === mesaNum).pos_x || 20, y: mesasCache.find(m => m.mesa === mesaNum).pos_y || 20 };
+        const offsetX = eInicio.clientX - canvasRect.left - posActual.x;
+        const offsetY = eInicio.clientY - canvasRect.top - posActual.y;
+        tile.style.cursor = 'grabbing';
+        tile.style.zIndex = '10';
+
+        function alMover(eMover){
+          let x = eMover.clientX - canvasRect.left - offsetX;
+          let y = eMover.clientY - canvasRect.top - offsetY;
+
+          // Imán: si queda cerca de alinearse con otra mesa, se pega
+          Object.entries(posicionesEdicion).forEach(([otraMesaStr, otraPos]) => {
+            if (Number(otraMesaStr) === mesaNum) return;
+            if (Math.abs(x - otraPos.x) < UMBRAL_IMAN) x = otraPos.x;
+            if (Math.abs(y - otraPos.y) < UMBRAL_IMAN) y = otraPos.y;
+          });
+
+          x = Math.max(0, Math.min(x, CANVAS_W - TILE_SIZE));
+          y = Math.max(0, Math.min(y, CANVAS_H - TILE_SIZE));
+
+          posicionesEdicion[mesaNum] = { x, y };
+          tile.style.left = x + 'px';
+          tile.style.top = y + 'px';
+
+          // Alerta visual de superposición
+          const superpuesta = Object.entries(posicionesEdicion).some(([otraMesaStr, otraPos]) => {
+            if (Number(otraMesaStr) === mesaNum) return false;
+            return Math.abs(x - otraPos.x) < TILE_SIZE - 4 && Math.abs(y - otraPos.y) < TILE_SIZE - 4;
+          });
+          tile.style.borderColor = superpuesta ? '#C97878' : 'var(--text-dim)';
+          tile.style.boxShadow = superpuesta ? '0 0 0 2px #C97878' : 'none';
+        }
+
+        function alSoltar(){
+          tile.style.cursor = 'grab';
+          tile.style.zIndex = '';
+          document.removeEventListener('mousemove', alMover);
+          document.removeEventListener('mouseup', alSoltar);
+        }
+
+        document.addEventListener('mousemove', alMover);
+        document.addEventListener('mouseup', alSoltar);
+      });
+    });
+  }
+
+  document.getElementById('btn-editar-plano').addEventListener('click', async () => {
+    if (!modoEdicionMesas) {
+      // Entrar a modo edición
+      modoEdicionMesas = true;
+      posicionesEdicion = {};
+      mesasCache.forEach(m => { posicionesEdicion[m.mesa] = { x: m.pos_x || 20, y: m.pos_y || 20 }; });
+      document.getElementById('btn-editar-plano').textContent = 'Guardar';
+      document.getElementById('mesas-instrucciones').textContent = 'Arrastrá las mesas a su lugar. Si dos quedan superpuestas, se marcan en rojo.';
+      document.getElementById('mesas-leyenda').style.display = 'none';
+      mesaSeleccionada = null;
+      renderCanvasMesas();
+      renderDetalleMesa();
+      renderCartaTicket();
+    } else {
+      // Guardar y salir del modo edición
+      const btnEditar = document.getElementById('btn-editar-plano');
+      btnEditar.disabled = true;
+      btnEditar.textContent = 'Guardando…';
+      try {
+        for (const [mesaStr, pos] of Object.entries(posicionesEdicion)) {
+          await sbUpdateMesa(Number(mesaStr), { pos_x: Math.round(pos.x), pos_y: Math.round(pos.y) });
+        }
+      } catch (err) {
+        alert('No se pudo guardar alguna posición: ' + err.message);
+      }
+      btnEditar.disabled = false;
+      modoEdicionMesas = false;
+      btnEditar.textContent = 'Editar plano';
+      document.getElementById('mesas-instrucciones').textContent = 'Tocá una mesa para ver sus opciones.';
+      document.getElementById('mesas-leyenda').style.display = '';
+      await cargarMesas();
+    }
+  });
 
   let carritoTicket = {}; // { menuItemId: cantidad }
   let mostrarCartaTicket = false;
@@ -4027,7 +4131,7 @@ var qrcode = function() {
         cargarMenu();
         cargarPromos();
         cargarClientes();
-        cargarMesas();
+        if (!modoEdicionMesas) cargarMesas();
         cargarEmbajadoras();
         cargarTiempos();
       }
