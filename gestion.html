@@ -25,6 +25,7 @@
     position:relative; left:50%; right:50%;
     margin-left:-50vw; margin-right:-50vw;
     padding:32px 40px;
+    overflow-x:auto;
   }
 
   /* Login */
@@ -245,8 +246,8 @@
           <button class="icon-btn" id="btn-editar-plano" style="width:auto; padding:8px 14px; display:none;">Editar plano</button>
         </div>
       </div>
-      <div style="display:grid; grid-template-columns:940px 1fr; gap:32px;">
-        <div id="mesas-canvas" style="position:relative; width:940px; height:520px; border:1px solid var(--line); border-radius:6px; background:var(--panel);">
+      <div style="display:grid; grid-template-columns:1300px 300px; gap:28px;">
+        <div id="mesas-canvas" style="position:relative; width:1300px; height:680px; border:1px solid var(--line); border-radius:6px; background:var(--panel);">
         </div>
         <div style="display:flex; flex-direction:column; gap:20px; overflow-y:auto;">
           <div id="mesa-detalle" style="border:1px solid var(--line); border-radius:4px; padding:28px; font-size:1.08em;">
@@ -3516,8 +3517,8 @@ var qrcode = function() {
     ocupada:    { bg: 'rgba(201,120,120,0.16)', fg: '#C97878', borde: '#C97878' },
   };
   const TILE_SIZE = 70;
-  const CANVAS_W = 940;
-  const CANVAS_H = 520;
+  const CANVAS_W = 1300;
+  const CANVAS_H = 680;
 
   let mesasCache = [];
   let menuCache = [];
