@@ -2897,17 +2897,20 @@ var qrcode = function() {
     appScreen.style.display = 'block';
     await cargarRolActual();
     aplicarVisibilidadPorRol();
-    cargarReservas();
-    cargarPedidos();
-    cargarMenu();
-    cargarPromos();
-    cargarClientes();
-    cargarMesas();
-    cargarEmbajadoras();
+    const vePanelGeneral = rolActual === 'dueno' || rolActual === 'recepcion';
+    if (vePanelGeneral) {
+      cargarReservas();
+      cargarPedidos();
+      cargarMenu();
+      cargarPromos();
+      cargarClientes();
+      cargarMesas();
+      cargarEmbajadoras();
+      cargarTiempos();
+    }
     cargarCocteleria();
     cargarCocina();
     cargarAtencion();
-    cargarTiempos();
     suscribirRealtime();
   }
 
@@ -2931,7 +2934,9 @@ var qrcode = function() {
   });
 
   // ---------- COCTELERÍA / COCINA / ATENCIÓN ----------
-  async function cargarItemsFiltrados(contId, filtroFn, estadoDestino, etiquetaBoton){
+  let idsVistosPorLista = {};
+
+  async function cargarItemsFiltrados(contId, filtroFn, estadoDestino, etiquetaBoton, mensajeNuevo){
     const cont = document.getElementById(contId);
     let data;
     try {
@@ -2947,17 +2952,33 @@ var qrcode = function() {
       });
     });
 
+    const anteriores = idsVistosPorLista[contId] || null;
+    const actuales = new Set(filas.map(f => f.item.id));
+    const nuevosIds = new Set();
+    if (anteriores !== null) {
+      actuales.forEach(id => { if (!anteriores.has(id)) nuevosIds.add(id); });
+    }
+    idsVistosPorLista[contId] = actuales;
+
     if (!filas.length) { cont.innerHTML = `<p class="empty">Nada pendiente por ahora.</p>`; return; }
 
-    cont.innerHTML = filas.map(f => `
-      <div style="border:1px solid var(--line); border-radius:6px; padding:16px 20px; display:flex; justify-content:space-between; align-items:center;">
+    cont.innerHTML = filas.map(f => {
+      const esNuevo = nuevosIds.has(f.item.id);
+      return `
+      <div style="border:1px solid ${esNuevo ? 'var(--copper)' : 'var(--line)'}; background:${esNuevo ? 'rgba(198,138,76,0.10)' : 'transparent'}; border-radius:6px; padding:16px 20px; display:flex; justify-content:space-between; align-items:center;">
         <div>
           <div style="font-family:'Fraunces',serif; font-style:italic; color:var(--copper); font-size:1.15rem;">Mesa ${f.mesa}</div>
           <div style="font-size:16px; margin-top:4px;">${f.item.cantidad}x ${f.item.nombre}</div>
         </div>
         <button class="btn-primary marcar-btn" data-pedido="${f.pedidoId}" data-item="${f.item.id}" style="padding:10px 18px; font-size:0.95rem;">${etiquetaBoton}</button>
       </div>
-    `).join('');
+    `;
+    }).join('');
+
+    if (nuevosIds.size > 0) {
+      sonarPingPanel();
+      mostrarAvisoPanel(mensajeNuevo);
+    }
 
     cont.querySelectorAll('.marcar-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
@@ -2981,13 +3002,13 @@ var qrcode = function() {
   }
 
   async function cargarCocteleria(){
-    await cargarItemsFiltrados('cocteleria-lista', it => it.tipo === 'cocteleria' && it.estado === 'pendiente', 'listo', 'Marcar listo');
+    await cargarItemsFiltrados('cocteleria-lista', it => it.tipo === 'cocteleria' && it.estado === 'pendiente', 'listo', 'Marcar listo', '🍹 Nuevo trago para preparar');
   }
   async function cargarCocina(){
-    await cargarItemsFiltrados('cocina-lista', it => it.tipo === 'cocina' && it.estado === 'pendiente', 'listo', 'Marcar listo');
+    await cargarItemsFiltrados('cocina-lista', it => it.tipo === 'cocina' && it.estado === 'pendiente', 'listo', 'Marcar listo', '🍽️ Nuevo plato para preparar');
   }
   async function cargarAtencion(){
-    await cargarItemsFiltrados('atencion-lista', it => it.estado === 'listo', 'entregado', 'Marcar entregado');
+    await cargarItemsFiltrados('atencion-lista', it => it.estado === 'listo', 'entregado', 'Marcar entregado', '🔔 Hay algo listo para retirar');
   }
 
   // ---------- TIEMPOS ----------
@@ -3907,8 +3928,13 @@ var qrcode = function() {
   function suscribirRealtime(){
     if (pollingId) clearInterval(pollingId);
     pollingId = setInterval(() => {
-      cargarReservas();
-      cargarPedidos();
+      if (rolActual === 'dueno' || rolActual === 'recepcion') {
+        cargarReservas();
+        cargarPedidos();
+      }
+      cargarCocteleria();
+      cargarCocina();
+      cargarAtencion();
     }, 8000);
   }
 </script>
