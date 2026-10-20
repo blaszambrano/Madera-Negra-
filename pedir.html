@@ -69,6 +69,7 @@
   .item-info{ flex-grow:1; }
   .item-name{ font-size:1rem; }
   .item-price{ font-size:0.88rem; color:var(--text-dim); margin-top:3px; }
+  .item-desc{ font-size:0.8rem; color:var(--text-dim); margin-top:3px; line-height:1.35; max-width:32ch; }
 
   .qty{
     display:flex; align-items:center; gap:10px;
@@ -265,6 +266,7 @@
             <div class="item-row">
               <div class="item-info">
                 <div class="item-name">${it.nombre}</div>
+                ${it.descripcion ? `<div class="item-desc">${it.descripcion}</div>` : ''}
                 <div class="item-price">${money(it.precio)}</div>
               </div>
               <div class="qty">
