@@ -148,6 +148,7 @@
       <button data-tab="precios">Precios y promos</button>
       <button data-tab="clientes">Clientes</button>
       <button data-tab="mesas">Mesas</button>
+      <button data-tab="pedir">Pedir</button>
       <button data-tab="embajadoras">Embajadoras</button>
       <button data-tab="cocteleria">Coctelería</button>
       <button data-tab="cocina">Cocina</button>
@@ -260,6 +261,13 @@
           </div>
         </div>
       </div>
+    </section>
+
+    <section class="panel" id="panel-pedir">
+      <div class="section-head">
+        <div><h2>Pedir a cocina</h2><p>Armá una comanda con la comida sola, sin precios, y sale por la comandera.</p></div>
+      </div>
+      <div id="pedir-contenido" style="max-width:640px;"></div>
     </section>
 
     <section class="panel" id="panel-embajadoras">
@@ -2886,8 +2894,8 @@ var qrcode = function() {
   let rolActual = 'dueno';
 
   const TABS_POR_ROL = {
-    dueno: ['reservas','calendario','pedidos','precios','clientes','mesas','embajadoras','cocteleria','cocina','atencion','tiempos'],
-    recepcion: ['reservas','calendario','pedidos','precios','clientes','mesas','embajadoras','cocteleria','cocina','atencion','tiempos'],
+    dueno: ['reservas','calendario','pedidos','precios','clientes','mesas','pedir','embajadoras','cocteleria','cocina','atencion','tiempos'],
+    recepcion: ['reservas','calendario','pedidos','precios','clientes','mesas','pedir','embajadoras','cocteleria','cocina','atencion','tiempos'],
     cocteleria: ['cocteleria'],
     cocina: ['cocina'],
     atencion: ['atencion'],
@@ -2972,6 +2980,7 @@ var qrcode = function() {
       document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
       if (btn.dataset.tab === 'clientes') cargarClientes();
       if (btn.dataset.tab === 'mesas') cargarMesas();
+      if (btn.dataset.tab === 'pedir') abrirPedir();
       if (btn.dataset.tab === 'embajadoras') cargarEmbajadoras();
       if (btn.dataset.tab === 'cocteleria') cargarCocteleria();
       if (btn.dataset.tab === 'cocina') cargarCocina();
@@ -3914,7 +3923,14 @@ var qrcode = function() {
           .filter(([, cant]) => cant > 0)
           .map(([id, cant]) => {
             const item = menuCache.find(m => String(m.id) === String(id));
-            return { nombre: item.nombre, precio: item.precio, cantidad: cant };
+            const fila = { nombre: item.nombre, precio: item.precio, cantidad: cant };
+            // Promos de pintas: la comandera imprime el nombre de la promo y las
+            // variedades para tildar con lapicera (no las cervezas elegidas).
+            if (item.promo_pintas) {
+              fila.promo_pintas = item.promo_pintas;
+              fila.opciones = menuCache.filter(m => m.elegible_promo_pintas).map(m => m.nombre.replace(/^Pinta\s+/i, ''));
+            }
+            return fila;
           });
         if (!items.length) return;
         const total = items.reduce((acc, it) => acc + it.precio * it.cantidad, 0);
@@ -3935,6 +3951,103 @@ var qrcode = function() {
         renderCartaTicket();
       });
     }
+  }
+
+  // ---------- PEDIR (comanda de cocina sin precios) ----------
+  let carritoPedir = {};      // { menuItemId: cantidad }
+  let mesaPedir = '';
+
+  async function abrirPedir(){
+    const cont = document.getElementById('pedir-contenido');
+    if (!menuCache.length) {
+      cont.innerHTML = `<p class="empty">Cargando carta…</p>`;
+      try { await cargarMenu(); } catch (e) {}
+    }
+    renderPedir();
+  }
+
+  function renderPedir(){
+    const cont = document.getElementById('pedir-contenido');
+    const comida = menuCache.filter(it => it.tipo === 'cocina');
+    if (!comida.length) { cont.innerHTML = `<p class="empty">No hay platos de cocina en la carta.</p>`; return; }
+
+    const scrollPrevio = document.getElementById('pedir-scroll')?.scrollTop || 0;
+    const mesas = (mesasCache || []).map(m => m.mesa).sort((a, b) => a - b);
+    const categorias = {};
+    comida.forEach(it => { (categorias[it.categoria] = categorias[it.categoria] || []).push(it); });
+    const hayItems = Object.values(carritoPedir).some(c => c > 0);
+
+    cont.innerHTML = `
+      <div style="display:flex; align-items:center; gap:12px; margin-bottom:18px;">
+        <label for="pedir-mesa" style="font-size:15px;">Mesa</label>
+        <select id="pedir-mesa" style="font-size:1rem; padding:9px 14px;">
+          <option value="">Elegí una mesa…</option>
+          ${mesas.map(n => `<option value="${n}" ${String(n) === String(mesaPedir) ? 'selected' : ''}>Mesa ${n}</option>`).join('')}
+        </select>
+      </div>
+      <div id="pedir-scroll" style="display:flex; flex-direction:column; gap:16px; max-height:520px; overflow-y:auto; margin-bottom:16px; padding-right:6px;">
+        ${Object.keys(categorias).map(cat => `
+          <div>
+            <div style="font-size:13px; color:var(--copper); font-style:italic; margin-bottom:8px;">${cat}</div>
+            ${categorias[cat].map(it => {
+              const cant = carritoPedir[it.id] || 0;
+              return `
+                <div style="display:flex; align-items:center; justify-content:space-between; padding:7px 0;">
+                  <div style="font-size:15px;">${it.nombre}</div>
+                  <div style="display:flex; align-items:center; gap:10px;">
+                    <button class="icon-btn pedir-menos" data-id="${it.id}" style="width:30px; height:30px; padding:0; font-size:16px;">−</button>
+                    <span style="min-width:18px; text-align:center; font-size:15px;">${cant}</span>
+                    <button class="icon-btn pedir-mas" data-id="${it.id}" style="width:30px; height:30px; padding:0; font-size:16px;">+</button>
+                  </div>
+                </div>`;
+            }).join('')}
+          </div>
+        `).join('')}
+      </div>
+      <div style="display:flex; justify-content:flex-end; border-top:1px solid var(--line); padding-top:16px;">
+        <button class="btn-primary" id="btn-enviar-cocina" ${hayItems && mesaPedir ? '' : 'disabled'} style="padding:12px 22px; font-size:1rem;">Enviar a cocina</button>
+      </div>
+    `;
+
+    const sc = document.getElementById('pedir-scroll');
+    if (sc) sc.scrollTop = scrollPrevio;
+
+    document.getElementById('pedir-mesa').addEventListener('change', e => {
+      mesaPedir = e.target.value;
+      renderPedir();
+    });
+    cont.querySelectorAll('.pedir-mas').forEach(b => b.addEventListener('click', () => {
+      carritoPedir[b.dataset.id] = (carritoPedir[b.dataset.id] || 0) + 1;
+      renderPedir();
+    }));
+    cont.querySelectorAll('.pedir-menos').forEach(b => b.addEventListener('click', () => {
+      carritoPedir[b.dataset.id] = Math.max((carritoPedir[b.dataset.id] || 0) - 1, 0);
+      renderPedir();
+    }));
+
+    const btn = document.getElementById('btn-enviar-cocina');
+    btn.addEventListener('click', async () => {
+      const items = Object.entries(carritoPedir)
+        .filter(([, cant]) => cant > 0)
+        .map(([id, cant]) => {
+          const item = menuCache.find(m => String(m.id) === String(id));
+          return { nombre: item.nombre, cantidad: cant };   // sin precios
+        });
+      if (!items.length || !mesaPedir) return;
+      btn.disabled = true;
+      btn.textContent = 'Enviando…';
+      try {
+        await sbInsert('solicitudes_comanda', { mesa: Number(mesaPedir), items });
+      } catch (err) {
+        alert('No se pudo enviar la comanda: ' + err.message);
+        btn.disabled = false;
+        btn.textContent = 'Enviar a cocina';
+        return;
+      }
+      mostrarAvisoPanel(`🖨️ Comanda de la Mesa ${mesaPedir} enviada a la comandera.`);
+      carritoPedir = {};
+      renderPedir();
+    });
   }
 
   async function renderDetalleMesa(){
