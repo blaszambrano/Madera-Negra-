@@ -2961,7 +2961,7 @@ var qrcode = function() {
   // ---------- COCTELERÍA / COCINA / ATENCIÓN ----------
   let idsVistosPorLista = {};
 
-  async function cargarItemsFiltrados(contId, filtroFn, estadoDestino, etiquetaBoton, mensajeNuevo){
+  async function cargarItemsFiltrados(contId, filtroFn, estadoDestino, etiquetaBoton, mensajeNuevo, etiquetaFn){
     const cont = document.getElementById(contId);
     let data;
     try {
@@ -2973,7 +2973,7 @@ var qrcode = function() {
     const filas = [];
     (data || []).forEach(p => {
       (p.items || []).forEach(it => {
-        if (filtroFn(it)) filas.push({ pedidoId: p.id, mesa: p.mesa, item: it });
+        if (filtroFn(it, p)) filas.push({ pedidoId: p.id, mesa: p.mesa, item: it });
       });
     });
 
@@ -2994,6 +2994,7 @@ var qrcode = function() {
         <div>
           <div style="font-family:'Fraunces',serif; font-style:italic; color:var(--copper); font-size:1.15rem;">Mesa ${f.mesa}</div>
           <div style="font-size:16px; margin-top:4px;">${f.item.cantidad}x ${f.item.nombre}</div>
+          ${etiquetaFn ? etiquetaFn(f) : ''}
         </div>
         <button class="btn-primary marcar-btn" data-pedido="${f.pedidoId}" data-item="${f.item.id}" style="padding:10px 18px; font-size:0.95rem;">${etiquetaBoton}</button>
       </div>
@@ -3032,8 +3033,53 @@ var qrcode = function() {
   async function cargarCocina(){
     await cargarItemsFiltrados('cocina-lista', it => it.tipo === 'cocina' && it.estado === 'pendiente', 'listo', 'Marcar listo', '🍽️ Nuevo plato para preparar');
   }
+  // ---------- MOZOS (asignación de mesas) ----------
+  let mozosCache = []; // cuentas con rol "atencion": [{ email, nombre }]
+
+  async function cargarMozos(){
+    try {
+      mozosCache = (await sbSelect('staff_roles', 'select=email,nombre&rol=eq.atencion&order=nombre.asc')) || [];
+    } catch (err) {
+      console.error('No se pudo cargar la lista de mozos', err);
+    }
+  }
+
+  function nombreMozo(email){
+    if (!email) return null;
+    const m = mozosCache.find(x => (x.email || '').toLowerCase() === email.toLowerCase());
+    return (m && m.nombre) || email.split('@')[0];
+  }
+
+  // Un mozo (rol "atencion") ve lo que está listo de SUS mesas y de las mesas sin
+  // mozo asignado (así nunca se pierde un aviso). Dueño y recepción ven todo.
   async function cargarAtencion(){
-    await cargarItemsFiltrados('atencion-lista', it => it.estado === 'listo', 'entregado', 'Marcar entregado', '🔔 Hay algo listo para retirar');
+    const asignaciones = {};
+    try {
+      const mesas = await sbSelect('mesas_estado', 'select=mesa,mozo_email');
+      (mesas || []).forEach(m => { asignaciones[m.mesa] = (m.mozo_email || '').toLowerCase() || null; });
+      if (!mozosCache.length) await cargarMozos();
+    } catch (err) {
+      console.error('No se pudieron leer las asignaciones de mesas; se muestran todas', err);
+    }
+    const miEmail = (getUserEmail() || '').toLowerCase();
+    const soloMias = rolActual === 'atencion';
+
+    await cargarItemsFiltrados(
+      'atencion-lista',
+      (it, p) => {
+        if (it.estado !== 'listo') return false;
+        if (!soloMias) return true;
+        const mozo = asignaciones[p.mesa];
+        return !mozo || mozo === miEmail;
+      },
+      'entregado', 'Marcar entregado', '🔔 Hay algo listo para retirar',
+      f => {
+        const mozo = asignaciones[f.mesa];
+        return (!soloMias && mozo)
+          ? `<div style="font-size:13px; color:var(--text-dim); margin-top:4px;">Mozo: ${nombreMozo(mozo)}</div>`
+          : '';
+      }
+    );
   }
 
   // ---------- TIEMPOS ----------
@@ -3585,6 +3631,7 @@ var qrcode = function() {
           ${sel ? 'box-shadow:0 0 0 2px var(--text);' : ''}">
           <span style="font-family:'Fraunces',serif; font-size:1.15rem; font-style:italic; color:var(--text);">${m.mesa}</span>
           ${(!modoEdicionMesas && m.estado === 'ocupada' && m.personas) ? `<span style="font-size:10px;">${m.personas}p</span>` : ''}
+          ${(!modoEdicionMesas && m.mozo_email) ? `<span style="font-size:9px; opacity:0.75;">${(nombreMozo(m.mozo_email) || '').slice(0, 8)}</span>` : ''}
         </div>
       `;
     }).join('');
@@ -3839,10 +3886,18 @@ var qrcode = function() {
       return;
     }
 
+    // Si la persona está usando un desplegable o escribiendo, no redibujamos
+    // (si no, el refresco automático le cerraría la lista a mitad de elegir).
+    const enfocado = document.activeElement;
+    if (enfocado && cont.contains(enfocado) && (enfocado.tagName === 'SELECT' || enfocado.tagName === 'INPUT')) return;
+
     const mesa = mesasCache.find(m => m.mesa === mesaSeleccionada);
     if (!mesa) { cont.innerHTML = `<p class="empty">Mesa no encontrada.</p>`; return; }
 
-    const zona = mesa.mesa <= 20 ? 'Terraza' : 'Interior / Salón';
+    const puedeAsignarMozo = (rolActual === 'dueno' || rolActual === 'recepcion');
+    if (puedeAsignarMozo && !mozosCache.length) await cargarMozos();
+
+    const zona =mesa.mesa <= 20 ? 'Terraza' : 'Interior / Salón';
     const linkPedido = `${window.location.origin}/pedir.html?mesa=${mesa.mesa}`;
     let qrDataUrl = '';
     try {
@@ -3863,6 +3918,20 @@ var qrcode = function() {
         </div>
       </div>
     `;
+
+    if (puedeAsignarMozo) {
+      const mozoActual = (mesa.mozo_email || '').toLowerCase();
+      html += `
+        <div style="margin-bottom:22px; padding-bottom:20px; border-bottom:1px solid var(--line);">
+          <div style="font-size:15px; font-weight:600; margin-bottom:10px;">Mozo a cargo</div>
+          <select id="select-mozo" style="width:100%; padding:11px; font-size:1rem;">
+            <option value="">Sin asignar (lo ven todos los mozos)</option>
+            ${mozosCache.map(m => `<option value="${m.email}" ${(m.email || '').toLowerCase() === mozoActual ? 'selected' : ''}>${m.nombre || m.email.split('@')[0]}</option>`).join('')}
+          </select>
+          <p style="font-size:12px; color:var(--text-dim); margin:8px 0 0;">Solo ese mozo recibe el aviso de lo que esté listo de esta mesa. Se mantiene aunque la mesa se libere.</p>
+        </div>
+      `;
+    }
 
     if (mesa.estado === 'disponible') {
       html += `
@@ -3909,6 +3978,19 @@ var qrcode = function() {
     }
 
     cont.innerHTML = html;
+
+    document.getElementById('select-mozo')?.addEventListener('change', async (e) => {
+      const valor = e.target.value || null;
+      try {
+        await sbUpdateMesa(mesa.mesa, { mozo_email: valor });
+      } catch (err) {
+        alert('No se pudo asignar el mozo: ' + err.message + '\n\n¿Corriste el SQL de mozos en Supabase?');
+        return;
+      }
+      e.target.blur();
+      mostrarAvisoPanel(valor ? `Mesa ${mesa.mesa} asignada a ${nombreMozo(valor)}.` : `Mesa ${mesa.mesa} sin mozo asignado.`);
+      cargarMesas();
+    });
 
     document.getElementById('btn-copiar-link-mesa')?.addEventListener('click', () => {
       navigator.clipboard.writeText(linkPedido).then(() => {
