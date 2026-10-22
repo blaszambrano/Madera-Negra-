@@ -112,6 +112,40 @@
   .confirmacion h2{ font-size:1.8rem; margin-bottom:12px; }
   .confirmacion p{ color:var(--text-dim); }
   .confirmacion .mesa-grande{ color:var(--copper); font-style:italic; }
+
+  .btn-elegir{
+    background:transparent; color:var(--copper); border:1px solid var(--copper);
+    border-radius:20px; padding:9px 16px; font-size:0.88rem; font-weight:600;
+    font-family:'Archivo', sans-serif; cursor:pointer; white-space:nowrap;
+  }
+  .promo-linea{
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+    margin-top:12px; padding:10px 14px; background:var(--panel);
+    border:1px solid var(--line); border-radius:8px; font-size:0.9rem;
+  }
+  .promo-linea .detalle{ color:var(--text); }
+
+  .modal-fondo{
+    position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:50;
+    display:none; align-items:flex-end; justify-content:center;
+  }
+  .modal-fondo.abierto{ display:flex; }
+  .modal-caja{
+    background:var(--panel-2); border-top:1px solid var(--line);
+    border-radius:14px 14px 0 0; width:100%; max-width:640px;
+    padding:22px 20px 26px; max-height:88vh; overflow-y:auto;
+  }
+  .modal-caja h3{ font-size:1.4rem; margin-bottom:6px; }
+  .modal-caja .sub{ color:var(--text-dim); font-size:0.88rem; margin-bottom:8px; }
+  .modal-contador{ color:var(--copper); font-size:0.95rem; margin:14px 0 4px; font-weight:600; }
+  .modal-acciones{ display:flex; gap:10px; margin-top:20px; }
+  .modal-acciones button{
+    flex:1; padding:14px; border-radius:2px; font-size:0.95rem; font-weight:600;
+    font-family:'Archivo', sans-serif; cursor:pointer;
+  }
+  .btn-cancelar{ background:transparent; color:var(--text); border:1px solid var(--line); }
+  .btn-confirmar{ background:var(--copper); color:#1A130D; border:none; }
+  .btn-confirmar:disabled{ opacity:0.4; }
 </style>
 </head>
 <body>
@@ -142,8 +176,12 @@
   </div>
 </div>
 
+<div class="modal-fondo" id="modal-promo">
+  <div class="modal-caja" id="modal-promo-caja"></div>
+</div>
+
 <script>
-  const SUPABASE_URL = "https://ebiejszqncjejszmbzdg.supabase.co";
+  const SUPABASE_URL ="https://ebiejszqncjejszmbzdg.supabase.co";
   const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImViaWVqc3pxbmNqZWpzem1iemRnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk1ODg2ODEsImV4cCI6MjEwNTE2NDY4MX0.rOtVwOq0QjquSZfc0rTU_GzhY3eskBnP8cXm2G-oYBI";
 
   async function sbSelect(tabla, query){
@@ -197,7 +235,34 @@
   const totalMontoEl = document.getElementById('total-monto');
   const btnEnviar = document.getElementById('btn-enviar');
 
-  const carrito = {}; // id -> { nombre, precio, cantidad }
+  // clave -> { nombre, precio, cantidad, barra?, detalle?, _promoId? }
+  // (clave = id del ítem de la carta; en las promos, una clave propia por combinación de estilos)
+  const carrito = {};
+  let dataCarta = [];          // la carta tal como viene de la base
+  let firmaVisiblesActual = '';
+
+  // ---- Horarios: la hora de Argentina es UTC-3 todo el año (no hay horario de verano) ----
+  function minutosAhoraAR(){
+    const d = new Date(Date.now() - 3 * 3600 * 1000);
+    return d.getUTCHours() * 60 + d.getUTCMinutes();
+  }
+  function aMinutos(hora){
+    if (!hora) return null;
+    const [h, m] = String(hora).split(':');
+    return Number(h) * 60 + Number(m);
+  }
+  // Un ítem sin horario se ve siempre. Con horario: desde (incluido) hasta (no incluido).
+  function visibleAhora(it){
+    const desde = aMinutos(it.visible_desde);
+    const hasta = aMinutos(it.visible_hasta);
+    if (desde === null && hasta === null) return true;
+    const ahora = minutosAhoraAR();
+    if (desde !== null && hasta !== null) {
+      return desde <= hasta ? (ahora >= desde && ahora < hasta) : (ahora >= desde || ahora < hasta);
+    }
+    if (desde !== null) return ahora >= desde;
+    return ahora < hasta;
+  }
 
   function obtenerEmbajadora(){
     try {
@@ -226,10 +291,194 @@
       delete carrito[item.id];
     } else {
       carrito[item.id] = { nombre: item.nombre, precio: Number(item.precio), cantidad: nueva };
+      if (item.solo_cerveza) carrito[item.id].barra = 'cerveza';
     }
     const span = document.getElementById('qty-' + item.id);
     if (span) span.textContent = nueva;
     actualizarBarra();
+  }
+
+  // ---- Promos de pintas (ej. "2 pintas" / "4 pintas"): el cliente elige los estilos ----
+  function nombreCorto(nombre){ return nombre.replace(/^Pinta\s+/i, ''); }
+
+  function cerrarModalPromo(){
+    document.getElementById('modal-promo').classList.remove('abierto');
+  }
+
+  function abrirModalPromo(promo){
+    const opciones = dataCarta.filter(i => i.elegible_promo_pintas && visibleAhora(i));
+    const n = Number(promo.promo_pintas);
+    const elegidas = {}; // id -> cantidad
+    const caja = document.getElementById('modal-promo-caja');
+
+    function totalElegido(){ return Object.values(elegidas).reduce((a, c) => a + c, 0); }
+
+    function dibujar(){
+      const total = totalElegido();
+      caja.innerHTML = `
+        <h3>${promo.nombre} — ${money(promo.precio)}</h3>
+        <p class="sub">Elegí ${n} pintas, del estilo que quieras (pueden repetirse).</p>
+        ${opciones.map(o => `
+          <div class="item-row">
+            <div class="item-info"><div class="item-name">${nombreCorto(o.nombre)}</div></div>
+            <div class="qty">
+              <button type="button" data-op="${o.id}" data-delta="-1">−</button>
+              <span>${elegidas[o.id] || 0}</span>
+              <button type="button" data-op="${o.id}" data-delta="1">+</button>
+            </div>
+          </div>`).join('')}
+        <div class="modal-contador">Elegiste ${total} de ${n}</div>
+        <div class="modal-acciones">
+          <button type="button" class="btn-cancelar" id="promo-cancelar">Cancelar</button>
+          <button type="button" class="btn-confirmar" id="promo-confirmar" ${total === n ? '' : 'disabled'}>Agregar promo</button>
+        </div>`;
+
+      caja.querySelectorAll('button[data-op]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const id = btn.getAttribute('data-op');
+          const delta = parseInt(btn.getAttribute('data-delta'), 10);
+          const actual = elegidas[id] || 0;
+          if (delta > 0 && totalElegido() >= n) return; // no pasarse de la cantidad de la promo
+          const nueva = Math.max(0, actual + delta);
+          if (nueva === 0) delete elegidas[id]; else elegidas[id] = nueva;
+          dibujar();
+        });
+      });
+      document.getElementById('promo-cancelar').addEventListener('click', cerrarModalPromo);
+      document.getElementById('promo-confirmar').addEventListener('click', () => {
+        if (totalElegido() !== n) return;
+        const partes = opciones
+          .filter(o => elegidas[o.id])
+          .map(o => (elegidas[o.id] > 1 ? elegidas[o.id] + ' ' : '') + nombreCorto(o.nombre));
+        const detalle = partes.join(', ');
+        const clave = `promo-${promo.id}-${detalle}`;
+        if (carrito[clave]) {
+          carrito[clave].cantidad += 1;
+        } else {
+          carrito[clave] = {
+            nombre: `${promo.nombre} (${detalle})`,
+            precio: Number(promo.precio),
+            cantidad: 1,
+            barra: 'cerveza',
+            detalle,
+            _promoId: promo.id,
+          };
+        }
+        cerrarModalPromo();
+        renderCarta();
+        actualizarBarra();
+      });
+    }
+
+    dibujar();
+    document.getElementById('modal-promo').classList.add('abierto');
+  }
+
+  // Saca del carrito lo que ya no está disponible (por ejemplo, una promo que terminó a las 22:00)
+  function limpiarCarritoNoVisibles(){
+    let sacoAlgo = false;
+    Object.keys(carrito).forEach(clave => {
+      const menuId = carrito[clave]._promoId || clave;
+      const it = dataCarta.find(d => String(d.id) === String(menuId));
+      if (!it || !visibleAhora(it)) { delete carrito[clave]; sacoAlgo = true; }
+    });
+    return sacoAlgo;
+  }
+
+  function firmaVisibles(){
+    return dataCarta.filter(visibleAhora).map(i => i.id).join(',');
+  }
+
+  function filaItemHtml(it){
+    const desc = it.descripcion ? `<div class="item-desc">${it.descripcion}</div>` : '';
+    if (it.promo_pintas) {
+      const combos = Object.entries(carrito).filter(([, e]) => String(e._promoId) === String(it.id));
+      return `
+        <div class="item-row" style="flex-wrap:wrap;">
+          <div class="item-info">
+            <div class="item-name">${it.nombre}</div>
+            ${desc}
+            <div class="item-price">${money(it.precio)}</div>
+          </div>
+          <button type="button" class="btn-elegir" data-promo="${it.id}">Elegir pintas</button>
+          ${combos.map(([clave, e]) => `
+            <div class="promo-linea" style="flex-basis:100%;">
+              <span class="detalle">${e.detalle}</span>
+              <div class="qty">
+                <button type="button" data-combo="${clave}" data-delta="-1" aria-label="Quitar una">−</button>
+                <span>${e.cantidad}</span>
+                <button type="button" data-combo="${clave}" data-delta="1" aria-label="Agregar una más">+</button>
+              </div>
+            </div>`).join('')}
+        </div>`;
+    }
+    return `
+      <div class="item-row">
+        <div class="item-info">
+          <div class="item-name">${it.nombre}</div>
+          ${desc}
+          <div class="item-price">${money(it.precio)}</div>
+        </div>
+        <div class="qty">
+          <button type="button" data-id="${it.id}" data-delta="-1" aria-label="Quitar uno de ${it.nombre}">−</button>
+          <span id="qty-${it.id}">${carrito[it.id]?.cantidad || 0}</span>
+          <button type="button" data-id="${it.id}" data-delta="1" aria-label="Agregar uno de ${it.nombre}">+</button>
+        </div>
+      </div>`;
+  }
+
+  function renderCarta(){
+    const visibles = dataCarta.filter(visibleAhora);
+    firmaVisiblesActual = firmaVisibles();
+
+    if (!visibles.length) {
+      contenido.innerHTML = `<div class="estado-msg"><h2>La carta no está disponible ahora</h2><p>Avisale a un mozo para pedir.</p></div>`;
+      return;
+    }
+
+    const categorias = {};
+    visibles.forEach(item => {
+      if (!categorias[item.categoria]) categorias[item.categoria] = [];
+      categorias[item.categoria].push(item);
+    });
+
+    const scrollPrevio = window.scrollY;
+
+    contenido.innerHTML = `
+      <div class="aviso"><strong>Mesa ${mesa}</strong> — elegí lo que quieras y mandalo. Llega directo a la barra con tu número de mesa.</div>
+      ${Object.keys(categorias).map(cat => `
+        <div class="cat-title">${cat}</div>
+        ${categorias[cat].map(filaItemHtml).join('')}
+      `).join('')}
+    `;
+
+    contenido.querySelectorAll('.qty button[data-id]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-id');
+        const delta = parseInt(btn.getAttribute('data-delta'), 10);
+        const item = dataCarta.find(d => String(d.id) === id);
+        if (item) cambiarCantidad(item, delta);
+      });
+    });
+    contenido.querySelectorAll('.btn-elegir').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const promo = dataCarta.find(d => String(d.id) === btn.getAttribute('data-promo'));
+        if (promo) abrirModalPromo(promo);
+      });
+    });
+    contenido.querySelectorAll('button[data-combo]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const clave = btn.getAttribute('data-combo');
+        const delta = parseInt(btn.getAttribute('data-delta'), 10);
+        if (!carrito[clave]) return;
+        carrito[clave].cantidad += delta;
+        if (carrito[clave].cantidad <= 0) delete carrito[clave];
+        renderCarta();
+        actualizarBarra();
+      });
+    });
+
+    window.scrollTo(0, scrollPrevio);
   }
 
   async function cargarCarta(){
@@ -246,48 +495,23 @@
     mesaBadge.textContent = 'Mesa ' + mesa;
 
     try {
-      const data = await sbSelect('menu_items', 'select=*&order=orden.asc');
-      if (!data || !data.length) {
+      dataCarta = (await sbSelect('menu_items', 'select=*&order=orden.asc')) || [];
+      if (!dataCarta.length) {
         contenido.innerHTML = `<div class="estado-msg"><h2>La carta no está disponible ahora</h2><p>Avisale a un mozo para pedir.</p></div>`;
         return;
       }
+      renderCarta();
 
-      const categorias = {};
-      data.forEach(item => {
-        if (!categorias[item.categoria]) categorias[item.categoria] = [];
-        categorias[item.categoria].push(item);
-      });
-
-      contenido.innerHTML = `
-        <div class="aviso"><strong>Mesa ${mesa}</strong> — elegí lo que quieras y mandalo. Llega directo a la barra con tu número de mesa.</div>
-        ${Object.keys(categorias).map(cat => `
-          <div class="cat-title">${cat}</div>
-          ${categorias[cat].map(it => `
-            <div class="item-row">
-              <div class="item-info">
-                <div class="item-name">${it.nombre}</div>
-                ${it.descripcion ? `<div class="item-desc">${it.descripcion}</div>` : ''}
-                <div class="item-price">${money(it.precio)}</div>
-              </div>
-              <div class="qty">
-                <button type="button" data-id="${it.id}" data-delta="-1" aria-label="Quitar uno de ${it.nombre}">−</button>
-                <span id="qty-${it.id}">0</span>
-                <button type="button" data-id="${it.id}" data-delta="1" aria-label="Agregar uno de ${it.nombre}">+</button>
-              </div>
-            </div>
-          `).join('')}
-        `).join('')}
-      `;
-
-      contenido.querySelectorAll('.qty button').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const id = btn.getAttribute('data-id');
-          const delta = parseInt(btn.getAttribute('data-delta'), 10);
-          const item = data.find(d => String(d.id) === id);
-          if (item) cambiarCantidad(item, delta);
-        });
-      });
-
+      // Cada 30 segundos revisa si cambió qué ítems corresponden por horario
+      // (ej.: la promo de las 18 a 22 aparece sola a las 18 y se va a las 22).
+      setInterval(() => {
+        if (!dataCarta.length) return;
+        if (firmaVisibles() !== firmaVisiblesActual) {
+          if (limpiarCarritoNoVisibles()) cerrarModalPromo();
+          renderCarta();
+          actualizarBarra();
+        }
+      }, 30000);
     } catch (err) {
       console.error('Error cargando la carta', err);
       contenido.innerHTML = `<div class="estado-msg"><h2>No pudimos cargar la carta</h2><p>${err.message}</p></div>`;
@@ -295,8 +519,23 @@
   }
 
   btnEnviar.addEventListener('click', async () => {
-    const items = Object.values(carrito);
-    if (!items.length) return;
+    if (!Object.keys(carrito).length) return;
+
+    // Si mientras tanto terminó el horario de algo del carrito (ej. la promo a las 22:00),
+    // se saca y se avisa antes de mandar.
+    if (limpiarCarritoNoVisibles()) {
+      renderCarta();
+      actualizarBarra();
+      alert('Algo de tu pedido ya no está disponible por horario y lo sacamos. Revisalo y volvé a enviar.');
+      return;
+    }
+
+    // Solo mandamos lo que necesita la barra (sin datos internos de la pantalla)
+    const items = Object.values(carrito).map(e => {
+      const linea = { nombre: e.nombre, precio: e.precio, cantidad: e.cantidad };
+      if (e.barra) linea.barra = e.barra;
+      return linea;
+    });
     const total = items.reduce((a, it) => a + it.cantidad * it.precio, 0);
 
     btnEnviar.disabled = true;

@@ -2906,6 +2906,7 @@ var qrcode = function() {
       const data = await sbSelect('staff_roles', `select=rol,nombre&email=eq.${encodeURIComponent(email)}`);
       rolActual = (data && data[0] && data[0].rol) || 'dueno';
       mostrarBadgeCuenta(data && data[0] ? data[0].nombre : null);
+      await cargarVeCerveza(email);
     } catch (err) {
       console.error('No se pudo cargar el rol, usando dueño por defecto', err);
       rolActual = 'dueno';
@@ -3048,8 +3049,30 @@ var qrcode = function() {
     });
   }
 
+  // ¿Esta cuenta de coctelería es la barra que tiene el dispenser de cerveza?
+  // (true = ve todo, incluidas las cervezas; false = ve todo menos las cervezas).
+  // Si no hay dato, ve todo: así nunca se pierde un pedido.
+  let veCerveza = true;
+
+  async function cargarVeCerveza(email){
+    try {
+      const d = await sbSelect('staff_roles', `select=ve_cerveza&email=eq.${encodeURIComponent(email)}`);
+      veCerveza = !(d && d[0] && d[0].ve_cerveza === false);
+    } catch (err) {
+      console.error('No se pudo leer la marca de barra de cerveza; se muestra todo', err);
+      veCerveza = true;
+    }
+  }
+
   async function cargarCocteleria(){
-    await cargarItemsFiltrados('cocteleria-lista', it => it.tipo === 'cocteleria' && it.estado === 'pendiente', 'listo', 'Marcar listo', '🍹 Nuevo trago para preparar');
+    await cargarItemsFiltrados(
+      'cocteleria-lista',
+      it => it.tipo === 'cocteleria' && it.estado === 'pendiente' && (veCerveza || it.barra !== 'cerveza'),
+      'listo', 'Marcar listo', '🍹 Nuevo trago para preparar',
+      f => f.item.barra === 'cerveza'
+        ? `<div style="font-size:13px; color:var(--copper); margin-top:4px;">🍺 Barra de cerveza</div>`
+        : ''
+    );
   }
   async function cargarCocina(){
     await cargarItemsFiltrados('cocina-lista', it => it.tipo === 'cocina' && it.estado === 'pendiente', 'listo', 'Marcar listo', '🍽️ Nuevo plato para preparar');
@@ -3504,7 +3527,7 @@ var qrcode = function() {
       <div class="cat-block">
         <div class="cat-title">${cat}</div>
         ${categorias[cat].map(it => `
-          <div class="cat-row">
+          <div class="cat-row" style="flex-wrap:wrap;">
             <input type="text" value="${it.nombre}" data-id="${it.id}" data-field="nombre" data-tabla="menu_items">
             <input type="number" value="${it.precio}" data-id="${it.id}" data-field="precio" data-tabla="menu_items">
             <select data-id="${it.id}" data-field="tipo" data-tabla="menu_items" style="padding:6px 8px;">
@@ -3512,6 +3535,17 @@ var qrcode = function() {
               <option value="cocina" ${it.tipo === 'cocina' ? 'selected' : ''}>Cocina</option>
             </select>
             <button class="icon-btn" data-id="${it.id}" data-tabla="menu_items" data-action="borrar" title="Borrar">✕</button>
+            <div style="flex-basis:100%; display:flex; align-items:center; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--text-dim); padding-bottom:2px;">
+              <label style="display:flex; align-items:center; gap:6px;" title="Solo lo ve la barra que tiene el dispenser de cerveza">
+                <input type="checkbox" ${it.solo_cerveza ? 'checked' : ''} data-id="${it.id}" data-field="solo_cerveza" data-tabla="menu_items"> Solo barra de cerveza
+              </label>
+              <label style="display:flex; align-items:center; gap:6px;" title="Si lo completás, aparece en la carta solo entre estas horas. Vacío = siempre.">
+                Visible desde <input type="time" value="${(it.visible_desde || '').slice(0, 5)}" data-id="${it.id}" data-field="visible_desde" data-tabla="menu_items" style="padding:4px 6px;">
+              </label>
+              <label style="display:flex; align-items:center; gap:6px;">
+                hasta <input type="time" value="${(it.visible_hasta || '').slice(0, 5)}" data-id="${it.id}" data-field="visible_hasta" data-tabla="menu_items" style="padding:4px 6px;">
+              </label>
+            </div>
           </div>
         `).join('')}
       </div>
@@ -4185,7 +4219,11 @@ var qrcode = function() {
     cont.querySelectorAll('input, select').forEach(inp => {
       inp.addEventListener('change', async () => {
         const { id, field, tabla } = inp.dataset;
-        const valor = inp.type === 'number' ? Number(inp.value) : inp.value;
+        let valor;
+        if (inp.type === 'number') valor = Number(inp.value);
+        else if (inp.type === 'checkbox') valor = inp.checked;
+        else if (inp.type === 'time') valor = inp.value || null; // vacío = sin horario
+        else valor = inp.value;
         try { await sbUpdate(tabla, id, { [field]: valor }); } catch (err) { alert('No se pudo guardar: ' + err.message); }
       });
     });
