@@ -2893,8 +2893,14 @@ var qrcode = function() {
     atencion: ['atencion'],
   };
 
+  // Email de la cuenta con la que se abrió ESTA pestaña. Se guarda en memoria al
+  // cargar para que, si en otra pestaña del mismo navegador se entra con otra
+  // cuenta, esta pestaña no se confunda de persona.
+  let emailCuenta = null;
+
   async function cargarRolActual(){
     const email = getUserEmail();
+    emailCuenta = email;
     if (!email) { rolActual = 'dueno'; return; }
     try {
       const data = await sbSelect('staff_roles', `select=rol,nombre&email=eq.${encodeURIComponent(email)}`);
@@ -3076,8 +3082,11 @@ var qrcode = function() {
     } catch (err) {
       console.error('No se pudieron leer las asignaciones de mesas; se muestran todas', err);
     }
-    const miEmail = (getUserEmail() || '').toLowerCase();
-    const soloMias = rolActual === 'atencion';
+    const miEmail = (emailCuenta || getUserEmail() || '').toLowerCase();
+    // La cuenta "Atención" general ve TODO (la usa quien cubra si falta un mozo).
+    // Mauri e Ilse ven solo sus mesas y las que no tienen mozo asignado.
+    const esCuentaGeneral = miEmail === 'atencion@staff.maderanegra.local';
+    const soloMias = rolActual === 'atencion' && !esCuentaGeneral;
 
     await cargarItemsFiltrados(
       'atencion-lista',
