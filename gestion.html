@@ -135,6 +135,7 @@
         </div>
       </div>
       <div style="display:flex; gap:10px; align-items:center;">
+        <span id="badge-cuenta" style="display:none; border:1px solid var(--copper); color:var(--copper); border-radius:20px; padding:6px 14px; font-size:0.85rem; font-weight:600; white-space:nowrap;"></span>
         <button class="icon-btn" id="btn-historial" style="width:auto; padding:8px 14px; font-size:0.85rem;">Historial de pedidos</button>
         <button class="btn-ghost" id="logout-btn">Cerrar sesión</button>
       </div>
@@ -2896,12 +2897,26 @@ var qrcode = function() {
     const email = getUserEmail();
     if (!email) { rolActual = 'dueno'; return; }
     try {
-      const data = await sbSelect('staff_roles', `select=rol&email=eq.${encodeURIComponent(email)}`);
+      const data = await sbSelect('staff_roles', `select=rol,nombre&email=eq.${encodeURIComponent(email)}`);
       rolActual = (data && data[0] && data[0].rol) || 'dueno';
+      mostrarBadgeCuenta(data && data[0] ? data[0].nombre : null);
     } catch (err) {
       console.error('No se pudo cargar el rol, usando dueño por defecto', err);
       rolActual = 'dueno';
+      mostrarBadgeCuenta(null);
     }
+  }
+
+  // Cartelito arriba a la derecha: dice con qué cuenta se entró
+  // (por ejemplo "Mauri · Atención", "Ilse · Atención" o "Atención (general)").
+  function mostrarBadgeCuenta(nombre){
+    const ROL_LABEL = { dueno: 'Dueño', recepcion: 'Recepción', cocteleria: 'Coctelería', cocina: 'Cocina', atencion: 'Atención' };
+    const etiquetaRol = ROL_LABEL[rolActual] || rolActual;
+    let texto;
+    if (nombre && nombre.toLowerCase() !== etiquetaRol.toLowerCase()) texto = `${nombre} · ${etiquetaRol}`;
+    else texto = rolActual === 'atencion' ? 'Atención (general)' : etiquetaRol;
+    const badge = document.getElementById('badge-cuenta');
+    if (badge) { badge.textContent = texto; badge.style.display = ''; }
   }
 
   function aplicarVisibilidadPorRol(){
