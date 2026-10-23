@@ -307,6 +307,11 @@
         <div><h2>Atención</h2><p>Listo para retirar y entregar en la mesa.</p></div>
       </div>
       <div id="atencion-lista" style="display:flex; flex-direction:column; gap:12px;"><p class="empty">Cargando…</p></div>
+      <div id="atencion-espera-titulo" style="display:none; margin:34px 0 6px;">
+        <h2 style="font-size:1.3rem;">⏳ En espera</h2>
+        <p style="color:var(--text-dim); font-size:0.9rem;">El cliente pidió esto “para después”. No le llega a cocina ni a la barra hasta que lo largues.</p>
+      </div>
+      <div id="atencion-espera" style="display:flex; flex-direction:column; gap:12px;"></div>
     </section>
 
     <section class="panel" id="panel-tiempos">
@@ -2992,7 +2997,13 @@ var qrcode = function() {
   // ---------- COCTELERÍA / COCINA / ATENCIÓN ----------
   let idsVistosPorLista = {};
 
-  async function cargarItemsFiltrados(contId, filtroFn, estadoDestino, etiquetaBoton, mensajeNuevo, etiquetaFn){
+  function esc(t){
+    return String(t ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  }
+
+  // extra (opcional): { accionesFn(f) -> html que reemplaza al botón único, o null para dejar el botón;
+  //                     alRenderizar(cont, filas) -> engancha los botones propios }
+  async function cargarItemsFiltrados(contId, filtroFn, estadoDestino, etiquetaBoton, mensajeNuevo, etiquetaFn, extra){
     const cont = document.getElementById(contId);
     let data;
     try {
@@ -3026,8 +3037,9 @@ var qrcode = function() {
           <div style="font-family:'Fraunces',serif; font-style:italic; color:var(--copper); font-size:1.15rem;">Mesa ${f.mesa}</div>
           <div style="font-size:16px; margin-top:4px;">${f.item.cantidad}x ${f.item.nombre}</div>
           ${etiquetaFn ? etiquetaFn(f) : ''}
+          ${f.item.nota ? `<div style="font-size:14px; color:var(--text); margin-top:6px; padding:6px 10px; border-left:3px solid var(--copper); background:rgba(198,138,76,0.08);">📝 ${esc(f.item.nota)}</div>` : ''}
         </div>
-        <button class="btn-primary marcar-btn" data-pedido="${f.pedidoId}" data-item="${f.item.id}" style="padding:10px 18px; font-size:0.95rem;">${etiquetaBoton}</button>
+        ${(extra && extra.accionesFn && extra.accionesFn(f)) || `<button class="btn-primary marcar-btn" data-pedido="${f.pedidoId}" data-item="${f.item.id}" style="padding:10px 18px; font-size:0.95rem;">${etiquetaBoton}</button>`}
       </div>
     `;
     }).join('');
@@ -3041,11 +3053,16 @@ var qrcode = function() {
       btn.addEventListener('click', async () => {
         btn.disabled = true;
         try {
-          await sbRpc('actualizar_estado_item', {
-            p_pedido_id: btn.dataset.pedido,
-            p_item_id: btn.dataset.item,
-            p_nuevo_estado: estadoDestino,
-          });
+          if (estadoDestino === 'pendiente') {
+            // "Largar ahora": sale de la espera y pasa a cocina/barra
+            await sbRpc('largar_item', { p_pedido_id: btn.dataset.pedido, p_item_id: btn.dataset.item });
+          } else {
+            await sbRpc('actualizar_estado_item', {
+              p_pedido_id: btn.dataset.pedido,
+              p_item_id: btn.dataset.item,
+              p_nuevo_estado: estadoDestino,
+            });
+          }
         } catch (err) {
           alert('No se pudo actualizar: ' + err.message);
           btn.disabled = false;
@@ -3056,6 +3073,8 @@ var qrcode = function() {
         cargarAtencion();
       });
     });
+
+    if (extra && extra.alRenderizar) extra.alRenderizar(cont, filas);
   }
 
   // ¿Esta cuenta de coctelería es la barra que tiene el dispenser de cerveza?
@@ -3073,6 +3092,109 @@ var qrcode = function() {
     }
   }
 
+  // ---- Entregar de a una: promos de pintas y líneas con varias unidades ----
+  // Devuelve la lista de pintas que quedan por entregar de una promo
+  // (ej. ["IPA","IPA","IPA","Honey"]) o null si la línea no es una promo de pintas.
+  function pintasDeItem(it){
+    if (Array.isArray(it.pintas_pendientes)) return it.pintas_pendientes.slice();
+    if (!/^Promo/i.test(it.nombre || '')) return null;
+    const m = String(it.nombre).match(/^(.*?)\s*\((.+)\)\s*$/);
+    if (!m) return null;
+    const unaVez = [];
+    m[2].split(',').forEach(parte => {
+      const mm = parte.trim().match(/^(\d+)\s+(.+)$/);
+      const n = mm ? parseInt(mm[1], 10) : 1;
+      const nombre = mm ? mm[2] : parte.trim();
+      for (let k = 0; k < n; k++) unaVez.push(nombre);
+    });
+    const veces = Number(it.cantidad) || 1;
+    let lista = [];
+    for (let v = 0; v < veces; v++) lista = lista.concat(unaVez);
+    return lista;
+  }
+  function baseDePromo(it){
+    if (it.promo_base) return it.promo_base;
+    const m = String(it.nombre).match(/^(.*?)\s*\(/);
+    return m ? m[1].trim() : it.nombre;
+  }
+  function detalleDePintas(lista){
+    const cuenta = {};
+    lista.forEach(p => { cuenta[p] = (cuenta[p] || 0) + 1; });
+    return Object.keys(cuenta).map(p => (cuenta[p] > 1 ? cuenta[p] + ' ' : '') + p).join(', ');
+  }
+
+  function accionesCocteleria(f){
+    const it = f.item;
+    const datos = `data-pedido="${f.pedidoId}" data-item="${it.id}"`;
+    const pintas = pintasDeItem(it);
+    if (pintas && pintas.length) {
+      const cuenta = {};
+      pintas.forEach(p => { cuenta[p] = (cuenta[p] || 0) + 1; });
+      return `
+        <div style="display:flex; flex-direction:column; gap:8px; align-items:flex-end; min-width:230px;">
+          ${Object.keys(cuenta).map(p => `
+            <div style="display:flex; align-items:center; gap:10px;">
+              <span style="font-size:15px;">🍺 ${esc(p)}${cuenta[p] > 1 ? ' ×' + cuenta[p] : ''}</span>
+              <button class="btn-primary split-pinta" ${datos} data-pinta="${esc(p)}" style="padding:8px 14px; font-size:0.88rem;">Marcar 1 lista</button>
+            </div>`).join('')}
+          ${pintas.length > 1 ? `<button class="btn-primary marcar-btn" ${datos} style="padding:8px 14px; font-size:0.88rem; background:transparent; color:var(--copper); border:1px solid var(--copper);">Marcar todas listas</button>` : ''}
+        </div>`;
+    }
+    const cant = Number(it.cantidad) || 1;
+    if (cant > 1) {
+      return `
+        <div style="display:flex; flex-direction:column; gap:8px; align-items:flex-end;">
+          <button class="btn-primary split-unidad" ${datos} style="padding:10px 18px; font-size:0.95rem;">Marcar 1 lista</button>
+          <button class="btn-primary marcar-btn" ${datos} style="padding:8px 14px; font-size:0.88rem; background:transparent; color:var(--copper); border:1px solid var(--copper);">Marcar todas listas</button>
+        </div>`;
+    }
+    return null; // cantidad 1: el botón de siempre
+  }
+
+  function enlazarEntregaDeAUna(cont, filas){
+    const buscar = btn => filas.find(f => f.pedidoId === btn.dataset.pedido && String(f.item.id) === btn.dataset.item);
+    const refrescar = () => { cargarCocteleria(); cargarCocina(); cargarAtencion(); };
+
+    cont.querySelectorAll('.split-pinta').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const f = buscar(btn); if (!f) return;
+        const pinta = btn.dataset.pinta;
+        const resto = pintasDeItem(f.item);
+        const pos = resto.indexOf(pinta);
+        if (pos < 0) return;
+        resto.splice(pos, 1);
+        const base = baseDePromo(f.item);
+        cont.querySelectorAll('button').forEach(b => { b.disabled = true; });
+        try {
+          await sbRpc('liberar_pinta', {
+            p_pedido_id: f.pedidoId,
+            p_item_id: String(f.item.id),
+            p_pinta: pinta,
+            p_base: base,
+            p_resto_nombre: resto.length ? `${base} · faltan: ${detalleDePintas(resto)}` : base,
+            p_pendientes: resto,
+          });
+        } catch (err) {
+          alert('No se pudo actualizar: ' + err.message);
+        }
+        refrescar();
+      });
+    });
+
+    cont.querySelectorAll('.split-unidad').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const f = buscar(btn); if (!f) return;
+        cont.querySelectorAll('button').forEach(b => { b.disabled = true; });
+        try {
+          await sbRpc('liberar_unidades', { p_pedido_id: f.pedidoId, p_item_id: String(f.item.id), p_cantidad: 1 });
+        } catch (err) {
+          alert('No se pudo actualizar: ' + err.message);
+        }
+        refrescar();
+      });
+    });
+  }
+
   async function cargarCocteleria(){
     await cargarItemsFiltrados(
       'cocteleria-lista',
@@ -3080,7 +3202,8 @@ var qrcode = function() {
       'listo', 'Marcar listo', '🍹 Nuevo trago para preparar',
       f => f.item.barra === 'cerveza'
         ? `<div style="font-size:13px; color:var(--copper); margin-top:4px;">🍺 Barra de cerveza</div>`
-        : ''
+        : '',
+      { accionesFn: accionesCocteleria, alRenderizar: enlazarEntregaDeAUna }
     );
   }
   async function cargarCocina(){
@@ -3136,6 +3259,32 @@ var qrcode = function() {
           : '';
       }
     );
+
+    // Productos que el cliente pidió "para después": quedan acá hasta que el mozo los largue.
+    if (rolActual === 'dueno' || rolActual === 'recepcion' || rolActual === 'atencion') {
+      await cargarItemsFiltrados(
+        'atencion-espera',
+        (it, p) => {
+          if (it.estado !== 'espera') return false;
+          if (!soloMias) return true;
+          const mozo = asignaciones[p.mesa];
+          return !mozo || mozo === miEmail;
+        },
+        'pendiente', 'Largar ahora', '⏳ Hay un pedido en espera para largar',
+        f => {
+          const min = f.item.creado_en ? Math.round((Date.now() - new Date(f.item.creado_en).getTime()) / 60000) : null;
+          const mozo = asignaciones[f.mesa];
+          const lineaMozo = (!soloMias && mozo) ? `<div style="font-size:13px; color:var(--text-dim); margin-top:4px;">Mozo: ${nombreMozo(mozo)}</div>` : '';
+          if (min === null) return lineaMozo;
+          const largo = min >= 40;
+          return lineaMozo + `<div style="font-size:13px; margin-top:4px; color:${largo ? '#C97878' : 'var(--text-dim)'};">${largo ? '⚠️ ' : ''}En espera hace ${min} min</div>`;
+        }
+      );
+      const contEspera = document.getElementById('atencion-espera');
+      const hayEspera = !!contEspera.querySelector('.marcar-btn');
+      document.getElementById('atencion-espera-titulo').style.display = hayEspera ? '' : 'none';
+      if (!hayEspera) contEspera.innerHTML = '';
+    }
   }
 
   // ---------- TIEMPOS ----------

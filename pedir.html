@@ -125,6 +125,18 @@
   }
   .promo-linea .detalle{ color:var(--text); }
 
+  .chip-cuando{
+    display:none; margin-top:8px; background:transparent; color:var(--text-dim);
+    border:1px solid var(--line); border-radius:20px; padding:5px 12px;
+    font-size:0.8rem; font-family:'Archivo', sans-serif; cursor:pointer;
+  }
+  .chip-cuando.despues{ color:var(--copper); border-color:var(--copper); }
+  .nota-pedido{
+    background:var(--panel); border:1px solid var(--line); color:var(--text);
+    padding:10px 12px; border-radius:20px; font-family:'Archivo',sans-serif;
+    font-size:0.85rem; width:100%;
+  }
+
   .modal-fondo{
     position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:50;
     display:none; align-items:flex-end; justify-content:center;
@@ -164,6 +176,8 @@
 
 <div class="bar-fija" id="bar-fija" style="display:none;">
   <div style="display:flex; flex-direction:column; gap:10px; width:100%;">
+    <input type="text" id="nota-pedido" class="nota-pedido" maxlength="200"
+      placeholder="¿Alguna aclaración? (ej. la comida cuando llegue mi amiga)">
     <input type="tel" id="telefono-puntos" placeholder="Tu WhatsApp (opcional, para sumar una visita)"
       style="background:var(--panel); border:1px solid var(--line); color:var(--text); padding:10px 12px; border-radius:20px; font-family:'Archivo',sans-serif; font-size:0.85rem; width:100%;">
     <div style="display:flex; align-items:center; gap:16px;">
@@ -284,17 +298,37 @@
     barFija.style.display = cantidadTotal > 0 ? 'flex' : 'none';
   }
 
+  // ---- "Ya" / "Después": cuándo quiere el cliente cada producto ----
+  function textoChip(clave){
+    return carrito[clave]?.despues ? '⏳ Después' : 'Ya';
+  }
+  function actualizarChip(clave){
+    const chip = Array.from(document.querySelectorAll('.chip-cuando')).find(c => c.getAttribute('data-cuando') === String(clave));
+    if (!chip) return;
+    chip.style.display = carrito[clave] ? 'inline-block' : 'none';
+    chip.textContent = textoChip(clave);
+    chip.classList.toggle('despues', !!carrito[clave]?.despues);
+  }
+  function alternarCuando(clave){
+    if (!carrito[clave]) return;
+    carrito[clave].despues = !carrito[clave].despues;
+    actualizarChip(clave);
+  }
+
   function cambiarCantidad(item, delta){
     const actual = carrito[item.id]?.cantidad || 0;
     const nueva = Math.max(0, actual + delta);
     if (nueva === 0) {
       delete carrito[item.id];
     } else {
+      const despues = !!carrito[item.id]?.despues;
       carrito[item.id] = { nombre: item.nombre, precio: Number(item.precio), cantidad: nueva };
       if (item.solo_cerveza) carrito[item.id].barra = 'cerveza';
+      if (despues) carrito[item.id].despues = true;
     }
     const span = document.getElementById('qty-' + item.id);
     if (span) span.textContent = nueva;
+    actualizarChip(item.id);
     actualizarBarra();
   }
 
@@ -404,6 +438,7 @@
           ${combos.map(([clave, e]) => `
             <div class="promo-linea" style="flex-basis:100%;">
               <span class="detalle">${e.detalle}</span>
+              <button type="button" class="chip-cuando${e.despues ? ' despues' : ''}" style="display:inline-block; margin-top:0;" data-cuando="${clave}">${textoChip(clave)}</button>
               <div class="qty">
                 <button type="button" data-combo="${clave}" data-delta="-1" aria-label="Quitar una">−</button>
                 <span>${e.cantidad}</span>
@@ -418,6 +453,7 @@
           <div class="item-name">${it.nombre}</div>
           ${desc}
           <div class="item-price">${money(it.precio)}</div>
+          <button type="button" class="chip-cuando${carrito[it.id]?.despues ? ' despues' : ''}" style="display:${carrito[it.id] ? 'inline-block' : 'none'};" data-cuando="${it.id}">${textoChip(it.id)}</button>
         </div>
         <div class="qty">
           <button type="button" data-id="${it.id}" data-delta="-1" aria-label="Quitar uno de ${it.nombre}">−</button>
@@ -459,6 +495,9 @@
         const item = dataCarta.find(d => String(d.id) === id);
         if (item) cambiarCantidad(item, delta);
       });
+    });
+    contenido.querySelectorAll('.chip-cuando').forEach(chip => {
+      chip.addEventListener('click', () => alternarCuando(chip.getAttribute('data-cuando')));
     });
     contenido.querySelectorAll('.btn-elegir').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -534,6 +573,7 @@
     const items = Object.values(carrito).map(e => {
       const linea = { nombre: e.nombre, precio: e.precio, cantidad: e.cantidad };
       if (e.barra) linea.barra = e.barra;
+      if (e.despues) linea.espera = true;   // queda en espera hasta que el mozo lo largue
       return linea;
     });
     const total = items.reduce((a, it) => a + it.cantidad * it.precio, 0);
@@ -547,6 +587,7 @@
         p_items: items,
         p_total: total,
         p_embajadora: obtenerEmbajadora() || null,
+        p_nota: (document.getElementById('nota-pedido').value || '').trim() || null,
       });
 
       const telefonoPuntos = document.getElementById('telefono-puntos').value.trim();
@@ -554,10 +595,12 @@
         sbRpc('sumar_visita', { p_telefono: telefonoPuntos, p_nombre: null }).catch(err => console.error('No se pudo sumar visita', err));
       }
 
+      const hayEspera = items.some(it => it.espera);
       document.querySelector('.wrap').innerHTML = `
         <div class="confirmacion">
           <h2>¡Pedido enviado!</h2>
           <p>Ya le llegó a la barra para la <span class="mesa-grande">mesa ${mesa}</span>. En un rato te lo acercamos.</p>
+          ${hayEspera ? '<p style="margin-top:12px;">Lo que marcaste como “Después” lo guardamos: avisale al mozo cuando lo quieras y lo preparamos.</p>' : ''}
         </div>`;
       barFija.style.display = 'none';
     } catch (err) {
