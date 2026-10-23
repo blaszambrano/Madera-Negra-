@@ -3645,7 +3645,93 @@ var qrcode = function() {
     return { desde: inicio.toISOString(), hasta: fin.toISOString() };
   }
 
-  async function cargarPedidos(){
+  // Edición de un pedido (agregar / sacar productos). Mientras se edita, el refresco
+  // automático no redibuja la lista para no pisar lo que se está haciendo.
+  let pedidoEditandoId = null;
+  let pedidosHoy = [];
+
+  function lineasEditables(p){
+    return (p.items || []).map(it => `
+      <div style="display:flex; align-items:center; gap:10px; padding:4px 0;">
+        <button class="icon-btn pedido-quitar" data-pedido="${p.id}" data-item="${esc(it.id)}" title="Sacar del pedido" style="width:26px; height:26px; padding:0; color:#C97878;">✕</button>
+        <span style="color:var(--copper);">${horaDeItem(it, p)}</span>
+        <span>${it.cantidad}x ${esc(it.nombre)}</span>
+        <span style="color:var(--text-dim); font-size:0.8rem;">${it.estado === 'listo' ? '(listo)' : it.estado === 'entregado' ? '(entregado)' : it.estado === 'espera' ? '(en espera)' : ''}</span>
+      </div>`).join('');
+  }
+
+  function formAgregarProducto(p){
+    const porCat = {};
+    (menuCache || []).forEach(it => { (porCat[it.categoria] = porCat[it.categoria] || []).push(it); });
+    return `
+      <div style="display:flex; align-items:center; gap:8px; margin-top:12px; flex-wrap:wrap;">
+        <select id="edit-producto-${p.id}" style="max-width:260px;">
+          <option value="">Agregar producto…</option>
+          ${Object.keys(porCat).map(cat => `<optgroup label="${esc(cat)}">${porCat[cat].map(it => `<option value="${esc(it.nombre)}">${esc(it.nombre)} — ${money(it.precio)}</option>`).join('')}</optgroup>`).join('')}
+        </select>
+        <input type="number" id="edit-cantidad-${p.id}" value="1" min="1" style="width:70px;">
+        <button class="btn-primary pedido-agregar" data-pedido="${p.id}" style="padding:9px 16px;">Agregar</button>
+      </div>`;
+  }
+
+  function dibujarPedidos(){
+    const cont = document.getElementById('pedidos-list');
+    const data = pedidosHoy;
+    if (!data.length) { cont.innerHTML = `<p class="empty">Todavía no hay pedidos.</p>`; return; }
+    cont.innerHTML = data.map(p => {
+      const editando = pedidoEditandoId === p.id;
+      return `
+      <div class="pedido-card" ${editando ? 'style="border-color:var(--copper);"' : ''}>
+        <div class="pedido-head">
+          <span class="pedido-mesa">Mesa ${p.mesa} <span style="font-size:0.8rem; color:var(--text-dim); font-style:normal;">· empezó ${new Date(p.creado_en).toLocaleTimeString('es-AR', HORA_FMT)}</span></span>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <button class="icon-btn pedido-editar" data-pedido="${p.id}" style="width:auto; padding:6px 12px; font-size:0.85rem;">${editando ? 'Listo' : '✏️ Editar'}</button>
+            <select class="estado-select estado-${p.estado.replace(' ','_')}" data-id="${p.id}" data-tabla="pedidos">
+              <option value="pendiente" ${p.estado==='pendiente'?'selected':''}>Pendiente</option>
+              <option value="en preparacion" ${p.estado==='en preparacion'?'selected':''}>En preparación</option>
+              <option value="entregado" ${p.estado==='entregado'?'selected':''}>Entregado</option>
+              <option value="cancelado" ${p.estado==='cancelado'?'selected':''}>Cancelado</option>
+            </select>
+          </div>
+        </div>
+        <div class="pedido-items">${editando ? lineasEditables(p) : lineasItemsConHora(p)}</div>
+        ${editando ? formAgregarProducto(p) : ''}
+        <div class="pedido-total">${money(p.total)}</div>
+      </div>`;
+    }).join('');
+    cont.querySelectorAll('select.estado-select').forEach(sel => sel.addEventListener('change', onEstadoChange));
+
+    cont.querySelectorAll('.pedido-editar').forEach(btn => btn.addEventListener('click', () => {
+      pedidoEditandoId = (pedidoEditandoId === btn.dataset.pedido) ? null : btn.dataset.pedido;
+      if (pedidoEditandoId === null) cargarPedidos(true); else dibujarPedidos();
+    }));
+
+    cont.querySelectorAll('.pedido-quitar').forEach(btn => btn.addEventListener('click', async () => {
+      const p = pedidosHoy.find(x => x.id === btn.dataset.pedido);
+      const it = p && (p.items || []).find(x => String(x.id) === btn.dataset.item);
+      if (!it) return;
+      if (!confirm(`¿Sacar ${it.cantidad}x ${it.nombre} del pedido de la Mesa ${p.mesa}?`)) return;
+      btn.disabled = true;
+      try {
+        await sbRpc('editar_pedido', { p_pedido_id: p.id, p_quitar: [String(it.id)], p_agregar: [] });
+      } catch (err) { alert('No se pudo sacar: ' + err.message); }
+      await cargarPedidos(true);
+    }));
+
+    cont.querySelectorAll('.pedido-agregar').forEach(btn => btn.addEventListener('click', async () => {
+      const id = btn.dataset.pedido;
+      const nombre = document.getElementById('edit-producto-' + id).value;
+      const cantidad = parseInt(document.getElementById('edit-cantidad-' + id).value, 10) || 1;
+      if (!nombre) { alert('Elegí un producto para agregar.'); return; }
+      btn.disabled = true;
+      try {
+        await sbRpc('editar_pedido', { p_pedido_id: id, p_quitar: [], p_agregar: [{ nombre, cantidad }] });
+      } catch (err) { alert('No se pudo agregar: ' + err.message); }
+      await cargarPedidos(true);
+    }));
+  }
+
+  async function cargarPedidos(forzar){
     const cont = document.getElementById('pedidos-list');
     let data;
     const hoy = new Date();
@@ -3667,23 +3753,10 @@ var qrcode = function() {
       mostrarAvisoPanel(`🍽️ Nuevo pedido — Mesa ${nuevo.mesa}`);
     }
 
-    if (!data.length) { cont.innerHTML = `<p class="empty">Todavía no hay pedidos.</p>`; return; }
-    cont.innerHTML = data.map(p => `
-      <div class="pedido-card">
-        <div class="pedido-head">
-          <span class="pedido-mesa">Mesa ${p.mesa} <span style="font-size:0.8rem; color:var(--text-dim); font-style:normal;">· empezó ${new Date(p.creado_en).toLocaleTimeString('es-AR', HORA_FMT)}</span></span>
-          <select class="estado-select estado-${p.estado.replace(' ','_')}" data-id="${p.id}" data-tabla="pedidos">
-            <option value="pendiente" ${p.estado==='pendiente'?'selected':''}>Pendiente</option>
-            <option value="en preparacion" ${p.estado==='en preparacion'?'selected':''}>En preparación</option>
-            <option value="entregado" ${p.estado==='entregado'?'selected':''}>Entregado</option>
-            <option value="cancelado" ${p.estado==='cancelado'?'selected':''}>Cancelado</option>
-          </select>
-        </div>
-        <div class="pedido-items">${lineasItemsConHora(p)}</div>
-        <div class="pedido-total">${money(p.total)}</div>
-      </div>
-    `).join('');
-    cont.querySelectorAll('select').forEach(sel => sel.addEventListener('change', onEstadoChange));
+    pedidosHoy = data;
+    // Si se está editando un pedido, el refresco automático no redibuja (solo lo hace al agregar/sacar o al tocar "Listo").
+    if (pedidoEditandoId && forzar !== true) return;
+    dibujarPedidos();
   }
 
   // ---------- CARTA ----------
