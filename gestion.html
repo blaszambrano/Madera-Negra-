@@ -323,7 +323,7 @@
       </div>
       <div class="tabla-wrap">
         <table>
-          <thead><tr><th>Mesa</th><th>Producto</th><th>Tipo</th><th>Preparación</th><th>Entrega</th></tr></thead>
+          <thead><tr><th>Mesa</th><th>Producto</th><th>Pedido a las</th><th>Tipo</th><th>Preparación</th><th>Entrega</th></tr></thead>
           <tbody id="tiempos-body"><tr><td colspan="5" class="empty">Cargando…</td></tr></tbody>
         </table>
       </div>
@@ -350,7 +350,7 @@
       </div>
       <div class="tabla-wrap">
         <table>
-          <thead><tr><th>Mesa</th><th>Fecha</th><th>Precio</th><th>Cocina</th><th>Coctelería</th><th>Entrega</th></tr></thead>
+          <thead><tr><th>Mesa</th><th>Fecha</th><th>Qué pidieron (hora de cada cosa)</th><th>Precio</th><th>Cocina</th><th>Coctelería</th><th>Entrega</th></tr></thead>
           <tbody id="historial-body"><tr><td colspan="6" class="empty">Cargando…</td></tr></tbody>
         </table>
       </div>
@@ -3358,7 +3358,7 @@ var qrcode = function() {
       </div>
     `;
 
-    if (!filas.length) { bodyCont.innerHTML = `<tr><td colspan="5" class="empty">Todavía no hay datos de tiempos.</td></tr>`; return; }
+    if (!filas.length) { bodyCont.innerHTML = `<tr><td colspan="6" class="empty">Todavía no hay datos de tiempos.</td></tr>`; return; }
 
     bodyCont.innerHTML = filas.slice(0, 40).map(f => {
       const it = f.item;
@@ -3369,6 +3369,7 @@ var qrcode = function() {
         <tr>
           <td>${f.mesa}</td>
           <td>${it.cantidad}x ${it.nombre}</td>
+          <td>${horaDeItem(it, { creado_en: null })}</td>
           <td>${it.tipo === 'cocina' ? 'Cocina' : 'Coctelería'}</td>
           <td>${formatearDuracion(tPrep)}</td>
           <td>${formatearDuracion(tEntrega)}</td>
@@ -3474,6 +3475,22 @@ var qrcode = function() {
     cargarHistorial();
   });
 
+  // Hora (de Argentina) en que se pidió cada producto. Los productos viejos, de antes
+  // de que se guardara la hora de cada uno, usan la hora del pedido y llevan un asterisco.
+  const HORA_FMT = { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Argentina/Buenos_Aires' };
+  function horaDeItem(it, pedido){
+    const propia = it.pedido_en || it.creado_en;
+    const fuente = propia || pedido.creado_en;
+    if (!fuente) return '—';
+    const hora = new Date(fuente).toLocaleTimeString('es-AR', HORA_FMT);
+    return propia ? hora : hora + '*';
+  }
+  function lineasItemsConHora(pedido){
+    return (pedido.items || []).map(it =>
+      `<div style="white-space:nowrap;"><span style="color:var(--copper); font-variant-numeric:tabular-nums;">${horaDeItem(it, pedido)}</span> · ${it.cantidad}x ${esc(it.nombre)}</div>`
+    ).join('');
+  }
+
   async function cargarHistorial(){
     const body = document.getElementById('historial-body');
     const fechaFiltro = document.getElementById('historial-filtro-fecha').value; // "YYYY-MM-DD" o vacío
@@ -3489,10 +3506,10 @@ var qrcode = function() {
     try {
       data = await sbSelect('pedidos', query);
     } catch (err) {
-      body.innerHTML = `<tr><td colspan="6" class="empty">Error al cargar (${err.message}).</td></tr>`; return;
+      body.innerHTML = `<tr><td colspan="7" class="empty">Error al cargar (${err.message}).</td></tr>`; return;
     }
 
-    if (!data.length) { body.innerHTML = `<tr><td colspan="6" class="empty">No hay pedidos para mostrar.</td></tr>`; return; }
+    if (!data.length) { body.innerHTML = `<tr><td colspan="7" class="empty">No hay pedidos para mostrar.</td></tr>`; return; }
 
     function maxDuracion(items, filtroFn, campoInicio, campoFin){
       let max = null;
@@ -3515,6 +3532,7 @@ var qrcode = function() {
         <tr>
           <td>${p.mesa}</td>
           <td>${fecha}</td>
+          <td style="font-size:0.88rem;">${lineasItemsConHora(p)}</td>
           <td>${money(p.total)}</td>
           <td>${formatearDuracion(tCocina)}</td>
           <td>${formatearDuracion(tCocteleria)}</td>
@@ -3653,7 +3671,7 @@ var qrcode = function() {
     cont.innerHTML = data.map(p => `
       <div class="pedido-card">
         <div class="pedido-head">
-          <span class="pedido-mesa">Mesa ${p.mesa}</span>
+          <span class="pedido-mesa">Mesa ${p.mesa} <span style="font-size:0.8rem; color:var(--text-dim); font-style:normal;">· empezó ${new Date(p.creado_en).toLocaleTimeString('es-AR', HORA_FMT)}</span></span>
           <select class="estado-select estado-${p.estado.replace(' ','_')}" data-id="${p.id}" data-tabla="pedidos">
             <option value="pendiente" ${p.estado==='pendiente'?'selected':''}>Pendiente</option>
             <option value="en preparacion" ${p.estado==='en preparacion'?'selected':''}>En preparación</option>
@@ -3661,7 +3679,7 @@ var qrcode = function() {
             <option value="cancelado" ${p.estado==='cancelado'?'selected':''}>Cancelado</option>
           </select>
         </div>
-        <div class="pedido-items">${(p.items||[]).map(it => `${it.cantidad}x ${it.nombre}`).join(' · ')}</div>
+        <div class="pedido-items">${lineasItemsConHora(p)}</div>
         <div class="pedido-total">${money(p.total)}</div>
       </div>
     `).join('');
