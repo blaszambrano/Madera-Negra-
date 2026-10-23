@@ -191,7 +191,7 @@
 
     <section class="panel" id="panel-pedidos">
       <div class="section-head">
-        <div><h2>Pedidos por mesa</h2><p>Los de hoy, que llegan desde los QR de cada mesa. Para otras fechas, mirá "Historial de pedidos".</p></div>
+        <div><h2>Pedidos por mesa</h2><p>Los de hoy (la jornada arranca a las 6 de la mañana), que llegan desde los QR de cada mesa. Para otras fechas, mirá "Historial de pedidos".</p></div>
       </div>
       <div id="pedidos-list"><p class="empty">Cargando…</p></div>
     </section>
@@ -3734,10 +3734,14 @@ var qrcode = function() {
   async function cargarPedidos(forzar){
     const cont = document.getElementById('pedidos-list');
     let data;
-    const hoy = new Date();
-    const { desde, hasta } = limitesDelDia(hoy.getFullYear(), hoy.getMonth() + 1, hoy.getDate());
+    // "Hoy" = la jornada del bar: arranca a las 6 de la mañana. Así, pasada la medianoche,
+    // los pedidos de la noche siguen a la vista hasta que amanece.
+    const ahora = new Date();
+    const inicioJornada = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate(), 6, 0, 0, 0);
+    if (ahora < inicioJornada) inicioJornada.setDate(inicioJornada.getDate() - 1);
+    const desde = inicioJornada.toISOString();
     try {
-      data = await sbSelect('pedidos', `select=*&creado_en=gte.${desde}&creado_en=lte.${hasta}&order=creado_en.desc`);
+      data = await sbSelect('pedidos', `select=*&creado_en=gte.${desde}&order=creado_en.desc`);
     } catch (err) {
       cont.innerHTML = `<p class="empty">Error al cargar (${err.message}).</p>`; return;
     }
