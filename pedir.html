@@ -125,6 +125,12 @@
   }
   .promo-linea .detalle{ color:var(--text); }
 
+  .chip-opcion{
+    background:transparent; color:var(--text); border:1px solid var(--line);
+    border-radius:20px; padding:9px 14px; font-size:0.88rem; font-family:'Archivo', sans-serif;
+    cursor:pointer; margin:0 8px 8px 0;
+  }
+  .chip-opcion.sel{ color:var(--copper); border-color:var(--copper); font-weight:600; }
   .chip-cuando{
     display:none; margin-top:8px; background:transparent; color:var(--text-dim);
     border:1px solid var(--line); border-radius:20px; padding:5px 12px;
@@ -293,7 +299,7 @@
 
   function actualizarBarra(){
     const cantidadTotal = Object.values(carrito).reduce((a, it) => a + it.cantidad, 0);
-    const total = Object.values(carrito).reduce((a, it) => a + it.cantidad * it.precio, 0);
+    const total = Object.values(carrito).reduce((a, it) => a + it.cantidad * (it.precio + (it.extraPrecio || 0)), 0);
     totalMontoEl.textContent = money(total);
     barFija.style.display = cantidadTotal > 0 ? 'flex' : 'none';
   }
@@ -334,6 +340,7 @@
 
   // ---- Promos de pintas (ej. "2 pintas" / "4 pintas"): el cliente elige los estilos ----
   function nombreCorto(nombre){ return nombre.replace(/^Pinta\s+/i, ''); }
+  function nombreExtra(nombre){ return nombre.replace(/^Papitas\s+/i, 'Papitas '); }
 
   function cerrarModalPromo(){
     document.getElementById('modal-promo').classList.remove('abierto');
@@ -343,6 +350,8 @@
     const opciones = dataCarta.filter(i => i.elegible_promo_pintas && visibleAhora(i));
     const n = Number(promo.promo_pintas);
     const elegidas = {}; // id -> cantidad
+    const extras = dataCarta.filter(i => i.extra_promo_pintas);   // ej. papitas (opcional, con costo extra)
+    let extraElegido = null;                                       // id del extra elegido, o null = sin extra
     const caja = document.getElementById('modal-promo-caja');
 
     function totalElegido(){ return Object.values(elegidas).reduce((a, c) => a + c, 0); }
@@ -362,6 +371,12 @@
             </div>
           </div>`).join('')}
         <div class="modal-contador">Elegiste ${total} de ${n}</div>
+        ${extras.length ? `
+          <div class="modal-contador" style="margin-top:20px;">¿Sumás papitas para picar?</div>
+          <div>
+            <button type="button" class="chip-opcion${extraElegido === null ? ' sel' : ''}" data-extra="">Sin papitas</button>
+            ${extras.map(x => `<button type="button" class="chip-opcion${String(extraElegido) === String(x.id) ? ' sel' : ''}" data-extra="${x.id}">${nombreExtra(x.nombre)} · +${money(x.precio)}</button>`).join('')}
+          </div>` : ''}
         <div class="modal-acciones">
           <button type="button" class="btn-cancelar" id="promo-cancelar">Cancelar</button>
           <button type="button" class="btn-confirmar" id="promo-confirmar" ${total === n ? '' : 'disabled'}>Agregar promo</button>
@@ -378,6 +393,13 @@
           dibujar();
         });
       });
+      caja.querySelectorAll('button[data-extra]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const v = btn.getAttribute('data-extra');
+          extraElegido = v === '' ? null : v;
+          dibujar();
+        });
+      });
       document.getElementById('promo-cancelar').addEventListener('click', cerrarModalPromo);
       document.getElementById('promo-confirmar').addEventListener('click', () => {
         if (totalElegido() !== n) return;
@@ -385,7 +407,8 @@
           .filter(o => elegidas[o.id])
           .map(o => (elegidas[o.id] > 1 ? elegidas[o.id] + ' ' : '') + nombreCorto(o.nombre));
         const detalle = partes.join(', ');
-        const clave = `promo-${promo.id}-${detalle}`;
+        const extra = extraElegido !== null ? extras.find(x => String(x.id) === String(extraElegido)) : null;
+        const clave = `promo-${promo.id}-${detalle}` + (extra ? `-extra${extra.id}` : '');
         if (carrito[clave]) {
           carrito[clave].cantidad += 1;
         } else {
@@ -397,6 +420,10 @@
             detalle,
             _promoId: promo.id,
           };
+          if (extra) {
+            carrito[clave].extraNombre = extra.nombre;
+            carrito[clave].extraPrecio = Number(extra.precio);
+          }
         }
         cerrarModalPromo();
         renderCarta();
@@ -419,8 +446,13 @@
     return sacoAlgo;
   }
 
+  // Lo que se ve en la carta: los extras de las promos (ej. papitas) solo se ofrecen dentro de la promo.
+  function visibleEnCarta(it){
+    return visibleAhora(it) && !it.extra_promo_pintas;
+  }
+
   function firmaVisibles(){
-    return dataCarta.filter(visibleAhora).map(i => i.id).join(',');
+    return dataCarta.filter(visibleEnCarta).map(i => i.id).join(',');
   }
 
   function filaItemHtml(it){
@@ -437,7 +469,7 @@
           <button type="button" class="btn-elegir" data-promo="${it.id}">Elegir pintas</button>
           ${combos.map(([clave, e]) => `
             <div class="promo-linea" style="flex-basis:100%;">
-              <span class="detalle">${e.detalle}</span>
+              <span class="detalle">${e.detalle}${e.extraNombre ? ' + ' + e.extraNombre : ''}</span>
               <button type="button" class="chip-cuando${e.despues ? ' despues' : ''}" style="display:inline-block; margin-top:0;" data-cuando="${clave}">${textoChip(clave)}</button>
               <div class="qty">
                 <button type="button" data-combo="${clave}" data-delta="-1" aria-label="Quitar una">−</button>
@@ -464,7 +496,7 @@
   }
 
   function renderCarta(){
-    const visibles = dataCarta.filter(visibleAhora);
+    const visibles = dataCarta.filter(visibleEnCarta);
     firmaVisiblesActual = firmaVisibles();
 
     if (!visibles.length) {
@@ -570,11 +602,18 @@
     }
 
     // Solo mandamos lo que necesita la barra (sin datos internos de la pantalla)
-    const items = Object.values(carrito).map(e => {
+    const items = [];
+    Object.values(carrito).forEach(e => {
       const linea = { nombre: e.nombre, precio: e.precio, cantidad: e.cantidad };
       if (e.barra) linea.barra = e.barra;
       if (e.despues) linea.espera = true;   // queda en espera hasta que el mozo lo largue
-      return linea;
+      items.push(linea);
+      if (e.extraNombre) {
+        // Las papitas de la promo van como su propia línea (una por cada promo)
+        const extra = { nombre: e.extraNombre, precio: e.extraPrecio, cantidad: e.cantidad };
+        if (e.despues) extra.espera = true;
+        items.push(extra);
+      }
     });
     const total = items.reduce((a, it) => a + it.cantidad * it.precio, 0);
 
