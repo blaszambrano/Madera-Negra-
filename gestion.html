@@ -3789,6 +3789,9 @@ var qrcode = function() {
             </select>
             <button class="icon-btn" data-id="${it.id}" data-tabla="menu_items" data-action="borrar" title="Borrar">✕</button>
             <div style="flex-basis:100%; display:flex; align-items:center; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--text-dim); padding-bottom:2px;">
+              <label class="label-sin-stock" style="display:flex; align-items:center; gap:6px; font-weight:600; color:${it.sin_stock ? '#C97878' : 'var(--text-dim)'};" title="Aparece en la carta como 'Sin stock' y no se puede elegir. Si es una pinta o papitas, tampoco se puede elegir dentro de las promos.">
+                <input type="checkbox" ${it.sin_stock ? 'checked' : ''} data-id="${it.id}" data-field="sin_stock" data-tabla="menu_items"> Sin stock
+              </label>
               <label style="display:flex; align-items:center; gap:6px;" title="Solo lo ve la barra que tiene el dispenser de cerveza">
                 <input type="checkbox" ${it.solo_cerveza ? 'checked' : ''} data-id="${it.id}" data-field="solo_cerveza" data-tabla="menu_items"> Solo barra de cerveza
               </label>
@@ -4581,7 +4584,11 @@ var qrcode = function() {
         else if (inp.type === 'checkbox') valor = inp.checked;
         else if (inp.type === 'time') valor = inp.value || null; // vacío = sin horario
         else valor = inp.value;
-        try { await sbUpdate(tabla, id, { [field]: valor }); } catch (err) { alert('No se pudo guardar: ' + err.message); }
+        try { await sbUpdate(tabla, id, { [field]: valor }); } catch (err) { alert('No se pudo guardar: ' + err.message); return; }
+        if (field === 'sin_stock') {
+          const lab = inp.closest('label');
+          if (lab) lab.style.color = valor ? '#C97878' : 'var(--text-dim)';
+        }
       });
     });
     cont.querySelectorAll('button[data-action="borrar"]').forEach(btn => {

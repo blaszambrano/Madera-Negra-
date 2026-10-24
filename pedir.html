@@ -125,6 +125,12 @@
   }
   .promo-linea .detalle{ color:var(--text); }
 
+  .sin-stock-tag{
+    color:#C97878; border:1px solid #C97878; border-radius:20px;
+    padding:6px 12px; font-size:0.8rem; font-weight:600; white-space:nowrap;
+  }
+  .agotado .item-name, .agotado .item-price, .agotado .item-desc{ opacity:0.45; }
+  .btn-elegir:disabled, .chip-opcion:disabled{ opacity:0.45; cursor:not-allowed; }
   .chip-opcion{
     background:transparent; color:var(--text); border:1px solid var(--line);
     border-radius:20px; padding:9px 14px; font-size:0.88rem; font-family:'Archivo', sans-serif;
@@ -361,7 +367,11 @@
       caja.innerHTML = `
         <h3>${promo.nombre} — ${money(promo.precio)}</h3>
         <p class="sub">Elegí ${n} pintas, del estilo que quieras (pueden repetirse).</p>
-        ${opciones.map(o => `
+        ${opciones.map(o => o.sin_stock ? `
+          <div class="item-row agotado">
+            <div class="item-info"><div class="item-name">${nombreCorto(o.nombre)}</div></div>
+            <span class="sin-stock-tag">Sin stock</span>
+          </div>` : `
           <div class="item-row">
             <div class="item-info"><div class="item-name">${nombreCorto(o.nombre)}</div></div>
             <div class="qty">
@@ -370,12 +380,15 @@
               <button type="button" data-op="${o.id}" data-delta="1">+</button>
             </div>
           </div>`).join('')}
+        ${opciones.every(o => o.sin_stock) ? '<p class="sub" style="color:#C97878;">Por ahora no hay pintas disponibles para esta promo.</p>' : ''}
         <div class="modal-contador">Elegiste ${total} de ${n}</div>
         ${extras.length ? `
           <div class="modal-contador" style="margin-top:20px;">¿Sumás papitas para picar?</div>
           <div>
             <button type="button" class="chip-opcion${extraElegido === null ? ' sel' : ''}" data-extra="">Sin papitas</button>
-            ${extras.map(x => `<button type="button" class="chip-opcion${String(extraElegido) === String(x.id) ? ' sel' : ''}" data-extra="${x.id}">${nombreExtra(x.nombre)} · +${money(x.precio)}</button>`).join('')}
+            ${extras.map(x => x.sin_stock
+              ? `<button type="button" class="chip-opcion" disabled>${nombreExtra(x.nombre)} · Sin stock</button>`
+              : `<button type="button" class="chip-opcion${String(extraElegido) === String(x.id) ? ' sel' : ''}" data-extra="${x.id}">${nombreExtra(x.nombre)} · +${money(x.precio)}</button>`).join('')}
           </div>` : ''}
         <div class="modal-acciones">
           <button type="button" class="btn-cancelar" id="promo-cancelar">Cancelar</button>
@@ -388,6 +401,7 @@
           const delta = parseInt(btn.getAttribute('data-delta'), 10);
           const actual = elegidas[id] || 0;
           if (delta > 0 && totalElegido() >= n) return; // no pasarse de la cantidad de la promo
+          if (delta > 0 && opciones.find(o => String(o.id) === id)?.sin_stock) return;
           const nueva = Math.max(0, actual + delta);
           if (nueva === 0) delete elegidas[id]; else elegidas[id] = nueva;
           dibujar();
@@ -419,8 +433,10 @@
             barra: 'cerveza',
             detalle,
             _promoId: promo.id,
+            _opciones: Object.keys(elegidas),
           };
           if (extra) {
+            carrito[clave]._extraId = String(extra.id);
             carrito[clave].extraNombre = extra.nombre;
             carrito[clave].extraPrecio = Number(extra.precio);
           }
@@ -439,9 +455,14 @@
   function limpiarCarritoNoVisibles(){
     let sacoAlgo = false;
     Object.keys(carrito).forEach(clave => {
-      const menuId = carrito[clave]._promoId || clave;
+      const e = carrito[clave];
+      const menuId = e._promoId || clave;
       const it = dataCarta.find(d => String(d.id) === String(menuId));
-      if (!it || !visibleAhora(it)) { delete carrito[clave]; sacoAlgo = true; }
+      if (!it || !visibleAhora(it) || it.sin_stock) { delete carrito[clave]; sacoAlgo = true; return; }
+      // Promo: si se agotó alguna de las pintas elegidas o las papitas, también se saca
+      const ids = (e._opciones || []).concat(e._extraId ? [e._extraId] : []);
+      const agotado = ids.some(id => dataCarta.find(d => String(d.id) === String(id))?.sin_stock);
+      if (agotado) { delete carrito[clave]; sacoAlgo = true; }
     });
     return sacoAlgo;
   }
@@ -452,7 +473,8 @@
   }
 
   function firmaVisibles(){
-    return dataCarta.filter(visibleEnCarta).map(i => i.id).join(',');
+    // Incluye el stock de TODO (también las pintas y papitas que solo se eligen dentro de una promo)
+    return dataCarta.map(i => i.id + (visibleEnCarta(i) ? 'v' : '') + (i.sin_stock ? 'x' : '')).join(',');
   }
 
   function filaItemHtml(it){
@@ -460,13 +482,15 @@
     if (it.promo_pintas) {
       const combos = Object.entries(carrito).filter(([, e]) => String(e._promoId) === String(it.id));
       return `
-        <div class="item-row" style="flex-wrap:wrap;">
+        <div class="item-row${it.sin_stock ? ' agotado' : ''}" style="flex-wrap:wrap;">
           <div class="item-info">
             <div class="item-name">${it.nombre}</div>
             ${desc}
             <div class="item-price">${money(it.precio)}</div>
           </div>
-          <button type="button" class="btn-elegir" data-promo="${it.id}">Elegir pintas</button>
+          ${it.sin_stock
+            ? '<span class="sin-stock-tag">Sin stock</span>'
+            : `<button type="button" class="btn-elegir" data-promo="${it.id}">Elegir pintas</button>`}
           ${combos.map(([clave, e]) => `
             <div class="promo-linea" style="flex-basis:100%;">
               <span class="detalle">${e.detalle}${e.extraNombre ? ' + ' + e.extraNombre : ''}</span>
@@ -478,6 +502,17 @@
               </div>
             </div>`).join('')}
         </div>`;
+    }
+    if (it.sin_stock) {
+      return `
+      <div class="item-row agotado">
+        <div class="item-info">
+          <div class="item-name">${it.nombre}</div>
+          ${desc}
+          <div class="item-price">${money(it.precio)}</div>
+        </div>
+        <span class="sin-stock-tag">Sin stock</span>
+      </div>`;
     }
     return `
       <div class="item-row">
@@ -552,6 +587,17 @@
     window.scrollTo(0, scrollPrevio);
   }
 
+  // Vuelve a leer la carta desde la base (para enterarse de lo que quedó sin stock).
+  // Si falla la conexión, se queda con la que ya tenía.
+  async function refrescarCarta(){
+    try {
+      const nueva = await sbSelect('menu_items', 'select=*&order=orden.asc');
+      if (nueva && nueva.length) dataCarta = nueva;
+    } catch (err) {
+      console.error('No se pudo actualizar la carta', err);
+    }
+  }
+
   async function cargarCarta(){
     if (!mesa || isNaN(mesa)) {
       contenido.innerHTML = `
@@ -573,10 +619,11 @@
       }
       renderCarta();
 
-      // Cada 30 segundos revisa si cambió qué ítems corresponden por horario
-      // (ej.: la promo de las 18 a 22 aparece sola a las 18 y se va a las 22).
-      setInterval(() => {
+      // Cada 30 segundos vuelve a leer la carta y revisa si cambió algo: el horario
+      // (la promo de las 18 a 22 aparece sola a las 18 y se va a las 22) o el stock.
+      setInterval(async () => {
         if (!dataCarta.length) return;
+        await refrescarCarta();
         if (firmaVisibles() !== firmaVisiblesActual) {
           if (limpiarCarritoNoVisibles()) cerrarModalPromo();
           renderCarta();
@@ -592,12 +639,16 @@
   btnEnviar.addEventListener('click', async () => {
     if (!Object.keys(carrito).length) return;
 
-    // Si mientras tanto terminó el horario de algo del carrito (ej. la promo a las 22:00),
-    // se saca y se avisa antes de mandar.
+    // Antes de mandar se vuelve a leer la carta. Si mientras tanto terminó el horario de algo
+    // del carrito (ej. la promo a las 22:00) o se quedó sin stock, se saca y se avisa.
+    btnEnviar.disabled = true;
+    await refrescarCarta();
+    btnEnviar.disabled = false;
     if (limpiarCarritoNoVisibles()) {
+      cerrarModalPromo();
       renderCarta();
       actualizarBarra();
-      alert('Algo de tu pedido ya no está disponible por horario y lo sacamos. Revisalo y volvé a enviar.');
+      alert('Algo de tu pedido ya no está disponible (por horario o porque se terminó) y lo sacamos. Revisalo y volvé a enviar.');
       return;
     }
 
