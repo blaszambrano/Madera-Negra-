@@ -3674,6 +3674,65 @@ var qrcode = function() {
       </div>`;
   }
 
+  // ---- Cobrar: lleva el pedido a "Mesas" con la cuenta ya armada (se puede seguir editando) ----
+  // Busca en la carta el producto que corresponde a una línea del pedido.
+  // Las promos de pintas llevan las pintas elegidas en el nombre ("Promo 2 pintas (IPA, Honey)")
+  // y, si se entregaron de a una, quedan como "Pinta IPA (de Promo 4 pintas)": se vuelven a la promo.
+  function productoDeCartaParaLinea(it){
+    const norm = t => String(t || '').trim().toLowerCase();
+    const exacto = menuCache.find(m => norm(m.nombre) === norm(it.nombre));
+    if (exacto) return { menu: exacto, exacto: true };
+    let n = String(it.nombre || '');
+    const de = n.match(/\(de (.+)\)\s*$/);
+    if (de) n = de[1];
+    else n = n.replace(/\s*·\s*faltan:.*$/i, '').replace(/\s*\(.*\)\s*$/, '');
+    const menu = menuCache.find(m => norm(m.nombre) === norm(n));
+    return menu ? { menu, exacto: false } : null;
+  }
+
+  function armarCarritoDesdePedido(p){
+    const carrito = {};
+    const noCargados = [];
+    (p.items || []).forEach(it => {
+      const r = productoDeCartaParaLinea(it);
+      if (!r) { noCargados.push(`${it.cantidad}x ${it.nombre}`); return; }
+      let cant;
+      if (r.exacto) {
+        cant = Number(it.cantidad) || 1;
+      } else {
+        // Línea derivada de una promo: las piezas ya entregadas llevan precio 0 y no suman;
+        // la que lleva el precio completo representa la promo entera.
+        const importe = (Number(it.precio) || 0) * (Number(it.cantidad) || 1);
+        if (importe <= 0) return;
+        cant = Math.max(1, Math.round(importe / Number(r.menu.precio || 1)));
+      }
+      carrito[r.menu.id] = (carrito[r.menu.id] || 0) + cant;
+    });
+    return { carrito, noCargados };
+  }
+
+  function cobrarPedido(p){
+    const mesa = mesasCache.find(m => m.mesa === p.mesa);
+    if (!mesa || mesa.estado !== 'ocupada') {
+      alert(`La Mesa ${p.mesa} no figura como ocupada, así que no se puede armar la cuenta desde Mesas.`);
+      return;
+    }
+    if (!menuCache.length) { alert('La carta todavía está cargando. Probá de nuevo en un momento.'); return; }
+    const { carrito, noCargados } = armarCarritoDesdePedido(p);
+
+    document.querySelector('nav.tabs button[data-tab="mesas"]').click();
+    mesaSeleccionada = p.mesa;
+    carritoTicket = carrito;
+    mostrarCartaTicket = true;
+    renderCanvasMesas();
+    renderDetalleMesa();
+    renderCartaTicket();
+
+    if (noCargados.length) {
+      alert('Estas líneas no se pudieron cargar en la cuenta (ya no están en la carta). Agregalas a mano si hace falta:\n\n' + noCargados.join('\n'));
+    }
+  }
+
   function dibujarPedidos(){
     const cont = document.getElementById('pedidos-list');
     const data = pedidosHoy;
@@ -3685,6 +3744,7 @@ var qrcode = function() {
         <div class="pedido-head">
           <span class="pedido-mesa">Mesa ${p.mesa} <span style="font-size:0.8rem; color:var(--text-dim); font-style:normal;">· empezó ${new Date(p.creado_en).toLocaleTimeString('es-AR', HORA_FMT)}</span></span>
           <div style="display:flex; align-items:center; gap:10px;">
+            <button class="btn-primary pedido-cobrar" data-pedido="${p.id}" style="padding:6px 14px; font-size:0.85rem;">💳 Cobrar</button>
             <button class="icon-btn pedido-editar" data-pedido="${p.id}" style="width:auto; padding:6px 12px; font-size:0.85rem;">${editando ? 'Listo' : '✏️ Editar'}</button>
             <select class="estado-select estado-${p.estado.replace(' ','_')}" data-id="${p.id}" data-tabla="pedidos">
               <option value="pendiente" ${p.estado==='pendiente'?'selected':''}>Pendiente</option>
@@ -3704,6 +3764,11 @@ var qrcode = function() {
     cont.querySelectorAll('.pedido-editar').forEach(btn => btn.addEventListener('click', () => {
       pedidoEditandoId = (pedidoEditandoId === btn.dataset.pedido) ? null : btn.dataset.pedido;
       if (pedidoEditandoId === null) cargarPedidos(true); else dibujarPedidos();
+    }));
+
+    cont.querySelectorAll('.pedido-cobrar').forEach(btn => btn.addEventListener('click', () => {
+      const p = pedidosHoy.find(x => x.id === btn.dataset.pedido);
+      if (p) cobrarPedido(p);
     }));
 
     cont.querySelectorAll('.pedido-quitar').forEach(btn => btn.addEventListener('click', async () => {
