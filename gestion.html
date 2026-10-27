@@ -3653,6 +3653,7 @@ var qrcode = function() {
   function lineasEditables(p){
     return (p.items || []).map(it => `
       <div style="display:flex; align-items:center; gap:10px; padding:4px 0;">
+        <input type="checkbox" class="mover-check" data-pedido="${p.id}" data-item="${esc(it.id)}" title="Marcar para mover a otra mesa" style="width:18px; height:18px;">
         <button class="icon-btn pedido-quitar" data-pedido="${p.id}" data-item="${esc(it.id)}" title="Sacar del pedido" style="width:26px; height:26px; padding:0; color:#C97878;">✕</button>
         <span style="color:var(--copper);">${horaDeItem(it, p)}</span>
         <span>${it.cantidad}x ${esc(it.nombre)}</span>
@@ -3733,6 +3734,23 @@ var qrcode = function() {
     }
   }
 
+  function formMoverPedido(p){
+    const mesas = (mesasCache || []).filter(m => m.mesa !== p.mesa).sort((a, b) => a.mesa - b.mesa);
+    const etiqueta = { disponible: 'libre', ocupada: 'ocupada', reservada: 'reservada' };
+    return `
+      <div style="margin-top:14px; padding-top:12px; border-top:1px dashed var(--line);">
+        <div style="font-size:12px; color:var(--text-dim); margin-bottom:8px;">Mover a otra mesa: tildá los productos (el cuadradito de la izquierda) o movelo todo.</div>
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          <select id="mover-mesa-${p.id}" style="max-width:200px;">
+            <option value="">Mesa destino…</option>
+            ${mesas.map(m => `<option value="${m.mesa}">Mesa ${m.mesa} (${etiqueta[m.estado] || m.estado})</option>`).join('')}
+          </select>
+          <button class="btn-primary pedido-mover" data-pedido="${p.id}" data-modo="marcados" style="padding:9px 14px;">Mover los tildados</button>
+          <button class="icon-btn pedido-mover" data-pedido="${p.id}" data-modo="todo" style="width:auto; padding:9px 14px;">Mover todo el pedido</button>
+        </div>
+      </div>`;
+  }
+
   function dibujarPedidos(){
     const cont = document.getElementById('pedidos-list');
     const data = pedidosHoy;
@@ -3755,7 +3773,7 @@ var qrcode = function() {
           </div>
         </div>
         <div class="pedido-items">${editando ? lineasEditables(p) : lineasItemsConHora(p)}</div>
-        ${editando ? formAgregarProducto(p) : ''}
+        ${editando ? formAgregarProducto(p) + formMoverPedido(p) : ''}
         <div class="pedido-total">${money(p.total)}</div>
       </div>`;
     }).join('');
@@ -3781,6 +3799,33 @@ var qrcode = function() {
         await sbRpc('editar_pedido', { p_pedido_id: p.id, p_quitar: [String(it.id)], p_agregar: [] });
       } catch (err) { alert('No se pudo sacar: ' + err.message); }
       await cargarPedidos(true);
+    }));
+
+    cont.querySelectorAll('.pedido-mover').forEach(btn => btn.addEventListener('click', async () => {
+      const p = pedidosHoy.find(x => x.id === btn.dataset.pedido);
+      if (!p) return;
+      const destino = parseInt(document.getElementById('mover-mesa-' + p.id).value, 10);
+      if (!destino) { alert('Elegí a qué mesa mover.'); return; }
+      let ids = [];
+      if (btn.dataset.modo === 'marcados') {
+        ids = Array.from(cont.querySelectorAll(`.mover-check[data-pedido="${p.id}"]:checked`)).map(c => c.dataset.item);
+        if (!ids.length) { alert('Tildá al menos un producto, o usá "Mover todo el pedido".'); return; }
+      }
+      const cuantos = ids.length ? `${ids.length} producto(s)` : 'todo el pedido';
+      const mesaDest = mesasCache.find(m => m.mesa === destino);
+      let texto = `¿Mover ${cuantos} de la Mesa ${p.mesa} a la Mesa ${destino}?`;
+      if (mesaDest && mesaDest.estado !== 'disponible') texto += `\n\nLa Mesa ${destino} está ${mesaDest.estado}: lo que muevas se suma a lo suyo.`;
+      if (!ids.length) texto += `\n\nLa Mesa ${p.mesa} va a quedar libre.`;
+      if (!confirm(texto)) return;
+      btn.disabled = true;
+      try {
+        await sbRpc('mover_pedido', { p_pedido_id: p.id, p_mesa_destino: destino, p_items: ids.length ? ids : null });
+      } catch (err) { alert('No se pudo mover: ' + err.message); btn.disabled = false; return; }
+      mostrarAvisoPanel(`➡️ Movido de la Mesa ${p.mesa} a la Mesa ${destino}.`);
+      pedidoEditandoId = null;
+      await cargarPedidos(true);
+      cargarMesas();
+      cargarAtencion();
     }));
 
     cont.querySelectorAll('.pedido-agregar').forEach(btn => btn.addEventListener('click', async () => {
