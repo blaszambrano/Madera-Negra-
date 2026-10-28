@@ -3883,12 +3883,22 @@ var qrcode = function() {
       cont.innerHTML = `<p class="empty">Error al cargar (${err.message}).</p>`; return;
     }
     menuCache = data || [];
+    // Si se está escribiendo en la carta (o hay un producto nuevo a medio cargar), no se redibuja:
+    // si no, el refresco automático borraría lo que se está tipeando.
+    const activo = document.activeElement;
+    const escribiendo = cont.contains(activo) && (activo.tagName === 'INPUT' || activo.tagName === 'SELECT');
+    const hayBorrador = Array.from(cont.querySelectorAll('.nuevo-nombre-cat, .nuevo-precio-cat')).some(i => i.value);
+    if (escribiendo || hayBorrador) return;
     if (!data.length) { cont.innerHTML = `<p class="empty">Todavía no hay productos.</p>`; return; }
     const categorias = {};
     data.forEach(it => { (categorias[it.categoria] = categorias[it.categoria] || []).push(it); });
     cont.innerHTML = Object.keys(categorias).map(cat => `
       <div class="cat-block">
-        <div class="cat-title">${cat}</div>
+        <div class="cat-title" style="display:flex; align-items:center; gap:10px;">
+          <input type="text" class="cat-nombre" value="${esc(cat)}" data-cat="${esc(cat)}" title="Tocá para cambiar el nombre de la categoría"
+            style="flex-grow:1; font-family:'Fraunces',serif; font-style:italic; font-size:1rem; color:var(--copper); background:transparent; border-color:transparent;">
+          <span style="font-size:11px; color:var(--text-dim); font-style:normal; font-family:'Archivo',sans-serif;">✏️ tocá el nombre para cambiarlo</span>
+        </div>
         ${categorias[cat].map(it => `
           <div class="cat-row" style="flex-wrap:wrap;">
             <input type="text" value="${it.nombre}" data-id="${it.id}" data-field="nombre" data-tabla="menu_items">
@@ -3914,9 +3924,72 @@ var qrcode = function() {
             </div>
           </div>
         `).join('')}
+        <div class="cat-row add-en-cat" data-cat="${esc(cat)}" style="flex-wrap:wrap; background:rgba(198,138,76,0.05);">
+          <input type="text" class="nuevo-nombre-cat" placeholder="+ Nuevo producto en esta categoría">
+          <input type="number" class="nuevo-precio-cat" placeholder="Precio">
+          <select class="nuevo-tipo-cat" style="padding:6px 8px;">
+            <option value="cocteleria" ${categorias[cat][0].tipo !== 'cocina' ? 'selected' : ''}>Coctelería</option>
+            <option value="cocina" ${categorias[cat][0].tipo === 'cocina' ? 'selected' : ''}>Cocina</option>
+          </select>
+          <button class="btn-primary agregar-en-cat" style="padding:8px 14px; font-size:0.85rem;">Agregar</button>
+        </div>
       </div>
     `).join('');
     cablearFilaEditable(cont);
+    cablearCategorias(cont);
+  }
+
+  // Renombrar una categoría = cambiarle el nombre a todos sus productos
+  async function sbRenombrarCategoria(viejo, nuevo){
+    const res = await fetchAutenticado(`${SUPABASE_URL}/rest/v1/menu_items?categoria=eq.${encodeURIComponent(viejo)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+      body: JSON.stringify({ categoria: nuevo }),
+    });
+    if (res.status === 401) { manejarSesionExpirada(); throw new Error('Sesión expirada'); }
+    if (!res.ok) throw new Error(`Supabase respondió ${res.status}`);
+    const filas = await res.json().catch(() => []);
+    if (!filas.length) throw new Error('No se cambió ningún producto (revisá los permisos)');
+  }
+
+  function cablearCategorias(cont){
+    cont.querySelectorAll('.cat-nombre').forEach(inp => {
+      inp.addEventListener('change', async () => {
+        const viejo = inp.dataset.cat;
+        const nuevo = inp.value.trim();
+        if (!nuevo) { inp.value = viejo; return; }
+        if (nuevo === viejo) return;
+        const yaExiste = menuCache.some(it => it.categoria === nuevo);
+        if (yaExiste && !confirm(`Ya existe una categoría llamada "${nuevo}". ¿Juntar los productos de "${viejo}" ahí?`)) { inp.value = viejo; return; }
+        try { await sbRenombrarCategoria(viejo, nuevo); }
+        catch (err) { alert('No se pudo cambiar el nombre: ' + err.message); inp.value = viejo; return; }
+        inp.blur();
+        cargarMenu();
+      });
+    });
+
+    cont.querySelectorAll('.add-en-cat').forEach(fila => {
+      const btn = fila.querySelector('.agregar-en-cat');
+      btn.addEventListener('click', async () => {
+        const categoria = fila.dataset.cat;
+        const nombre = fila.querySelector('.nuevo-nombre-cat').value.trim();
+        const precio = Number(fila.querySelector('.nuevo-precio-cat').value);
+        const tipo = fila.querySelector('.nuevo-tipo-cat').value;
+        if (!nombre || !precio) { alert('Completá el nombre y el precio del producto.'); return; }
+        if (menuCache.some(it => (it.nombre || '').trim().toLowerCase() === nombre.toLowerCase())) {
+          alert('Ya hay un producto con ese nombre. Usá un nombre distinto (por ejemplo, agregándole el tamaño o el sabor).');
+          return;
+        }
+        const ordenes = menuCache.filter(it => it.categoria === categoria).map(it => Number(it.orden) || 0);
+        const orden = (ordenes.length ? Math.max(...ordenes) : 0) + 1;
+        btn.disabled = true;
+        try { await sbInsert('menu_items', { categoria, nombre, precio, orden, tipo }); }
+        catch (err) { alert('No se pudo agregar: ' + err.message); btn.disabled = false; return; }
+        fila.querySelector('.nuevo-nombre-cat').value = '';
+        fila.querySelector('.nuevo-precio-cat').value = '';
+        cargarMenu();
+      });
+    });
   }
 
   async function cargarPromos(){
@@ -4686,7 +4759,7 @@ var qrcode = function() {
   });
 
   function cablearFilaEditable(cont){
-    cont.querySelectorAll('input, select').forEach(inp => {
+    cont.querySelectorAll('input[data-id], select[data-id]').forEach(inp => {
       inp.addEventListener('change', async () => {
         const { id, field, tabla } = inp.dataset;
         let valor;
