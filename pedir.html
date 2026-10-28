@@ -62,6 +62,23 @@
     color:var(--copper); font-style:italic;
   }
 
+  .cat-bloque{ border-bottom:1px solid var(--line); }
+  .cat-head{
+    width:100%; display:flex; align-items:center; gap:12px; text-align:left;
+    background:transparent; border:none; color:var(--copper); cursor:pointer;
+    padding:20px 0; font-family:'Fraunces', serif; font-style:italic; font-size:1.3rem;
+  }
+  .cat-head .cat-txt{ flex-grow:1; }
+  .cat-head .cat-flecha{ color:var(--text-dim); font-style:normal; font-size:1rem; transition:transform .2s; }
+  .cat-head.abierta .cat-flecha{ transform:rotate(180deg); }
+  .cat-badge{
+    display:none; background:var(--copper); color:#1A130D; border-radius:20px;
+    padding:2px 10px; font-family:'Archivo', sans-serif; font-style:normal;
+    font-size:0.78rem; font-weight:600;
+  }
+  .cat-cuerpo[hidden]{ display:none; }
+  .cat-cuerpo .item-row:last-child{ border-bottom:none; }
+
   .item-row{
     display:flex; align-items:center; gap:14px;
     padding:16px 0; border-bottom:1px solid var(--line);
@@ -308,6 +325,7 @@
     const total = Object.values(carrito).reduce((a, it) => a + it.cantidad * (it.precio + (it.extraPrecio || 0)), 0);
     totalMontoEl.textContent = money(total);
     barFija.style.display = cantidadTotal > 0 ? 'flex' : 'none';
+    actualizarBadgesCategorias();
   }
 
   // ---- "Ya" / "Después": cuándo quiere el cliente cada producto ----
@@ -530,6 +548,29 @@
       </div>`;
   }
 
+  // Categorías desplegadas (por defecto todas cerradas; se acuerda de cuáles abrió el cliente)
+  const categoriasAbiertas = new Set();
+
+  function attrSeguro(t){
+    return String(t).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  }
+
+  // Cuántos productos del pedido hay en cada categoría (se muestra al lado del nombre)
+  function actualizarBadgesCategorias(){
+    const cuenta = {};
+    Object.keys(carrito).forEach(clave => {
+      const e = carrito[clave];
+      const it = dataCarta.find(d => String(d.id) === String(e._promoId || clave));
+      if (it) cuenta[it.categoria] = (cuenta[it.categoria] || 0) + e.cantidad;
+    });
+    contenido.querySelectorAll('.cat-head').forEach(head => {
+      const n = cuenta[head.getAttribute('data-cat')] || 0;
+      const badge = head.querySelector('.cat-badge');
+      badge.textContent = n + ' en tu pedido';
+      badge.style.display = n > 0 ? 'inline-block' : 'none';
+    });
+  }
+
   function renderCarta(){
     const visibles = dataCarta.filter(visibleEnCarta);
     firmaVisiblesActual = firmaVisibles();
@@ -548,12 +589,35 @@
     const scrollPrevio = window.scrollY;
 
     contenido.innerHTML = `
-      <div class="aviso"><strong>Mesa ${mesa}</strong> — elegí lo que quieras y mandalo. Llega directo a la barra con tu número de mesa.</div>
-      ${Object.keys(categorias).map(cat => `
-        <div class="cat-title">${cat}</div>
-        ${categorias[cat].map(filaItemHtml).join('')}
-      `).join('')}
+      <div class="aviso"><strong>Mesa ${mesa}</strong> — tocá una categoría para ver los productos, elegí lo que quieras y mandalo. Llega directo a la barra con tu número de mesa.</div>
+      ${Object.keys(categorias).map(cat => {
+        const abierta = categoriasAbiertas.has(cat);
+        return `
+        <div class="cat-bloque">
+          <button type="button" class="cat-head${abierta ? ' abierta' : ''}" data-cat="${attrSeguro(cat)}" aria-expanded="${abierta}">
+            <span class="cat-txt">${cat}</span>
+            <span class="cat-badge"></span>
+            <span class="cat-flecha">▼</span>
+          </button>
+          <div class="cat-cuerpo"${abierta ? '' : ' hidden'}>
+            ${categorias[cat].map(filaItemHtml).join('')}
+          </div>
+        </div>`;
+      }).join('')}
     `;
+
+    contenido.querySelectorAll('.cat-head').forEach(head => {
+      head.addEventListener('click', () => {
+        const cat = head.getAttribute('data-cat');
+        const cuerpo = head.nextElementSibling;
+        const abrir = cuerpo.hasAttribute('hidden');
+        if (abrir) { categoriasAbiertas.add(cat); cuerpo.removeAttribute('hidden'); }
+        else { categoriasAbiertas.delete(cat); cuerpo.setAttribute('hidden', ''); }
+        head.classList.toggle('abierta', abrir);
+        head.setAttribute('aria-expanded', String(abrir));
+      });
+    });
+    actualizarBadgesCategorias();
 
     contenido.querySelectorAll('.qty button[data-id]').forEach(btn => {
       btn.addEventListener('click', () => {
