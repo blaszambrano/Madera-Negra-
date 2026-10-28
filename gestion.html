@@ -3874,11 +3874,11 @@ var qrcode = function() {
   }
 
   // ---------- CARTA ----------
-  async function cargarMenu(){
+  async function cargarMenu(forzar){
     const cont = document.getElementById('menu-list');
     let data;
     try {
-      data = await sbSelect('menu_items', 'select=*&order=categoria.asc,orden.asc');
+      data = await sbSelect('menu_items', 'select=*&order=orden.asc,nombre.asc');
     } catch (err) {
       cont.innerHTML = `<p class="empty">Error al cargar (${err.message}).</p>`; return;
     }
@@ -3888,19 +3888,25 @@ var qrcode = function() {
     const activo = document.activeElement;
     const escribiendo = cont.contains(activo) && (activo.tagName === 'INPUT' || activo.tagName === 'SELECT');
     const hayBorrador = Array.from(cont.querySelectorAll('.nuevo-nombre-cat, .nuevo-precio-cat')).some(i => i.value);
-    if (escribiendo || hayBorrador) return;
+    if ((escribiendo || hayBorrador) && forzar !== true) return;
     if (!data.length) { cont.innerHTML = `<p class="empty">Todavía no hay productos.</p>`; return; }
     const categorias = {};
     data.forEach(it => { (categorias[it.categoria] = categorias[it.categoria] || []).push(it); });
-    cont.innerHTML = Object.keys(categorias).map(cat => `
+    const ordenCats = Object.keys(categorias);
+    cont.innerHTML = ordenCats.map((cat, catIdx) => `
       <div class="cat-block">
         <div class="cat-title" style="display:flex; align-items:center; gap:10px;">
           <input type="text" class="cat-nombre" value="${esc(cat)}" data-cat="${esc(cat)}" title="Tocá para cambiar el nombre de la categoría"
             style="flex-grow:1; font-family:'Fraunces',serif; font-style:italic; font-size:1rem; color:var(--copper); background:transparent; border-color:transparent;">
-          <span style="font-size:11px; color:var(--text-dim); font-style:normal; font-family:'Archivo',sans-serif;">✏️ tocá el nombre para cambiarlo</span>
+          <button class="icon-btn mover-cat" data-cat="${esc(cat)}" data-dir="-1" title="Subir esta categoría" ${catIdx === 0 ? 'disabled' : ''} style="width:30px; height:30px; padding:0;">▲</button>
+          <button class="icon-btn mover-cat" data-cat="${esc(cat)}" data-dir="1" title="Bajar esta categoría" ${catIdx === ordenCats.length - 1 ? 'disabled' : ''} style="width:30px; height:30px; padding:0;">▼</button>
         </div>
-        ${categorias[cat].map(it => `
+        ${categorias[cat].map((it, itIdx) => `
           <div class="cat-row" style="flex-wrap:wrap;">
+            <div style="display:flex; flex-direction:column; gap:2px;">
+              <button class="icon-btn mover-item" data-id="${it.id}" data-dir="-1" title="Subir" ${itIdx === 0 ? 'disabled' : ''} style="width:24px; height:18px; padding:0; font-size:10px; line-height:1;">▲</button>
+              <button class="icon-btn mover-item" data-id="${it.id}" data-dir="1" title="Bajar" ${itIdx === categorias[cat].length - 1 ? 'disabled' : ''} style="width:24px; height:18px; padding:0; font-size:10px; line-height:1;">▼</button>
+            </div>
             <input type="text" value="${it.nombre}" data-id="${it.id}" data-field="nombre" data-tabla="menu_items">
             <input type="number" value="${it.precio}" data-id="${it.id}" data-field="precio" data-tabla="menu_items">
             <select data-id="${it.id}" data-field="tipo" data-tabla="menu_items" style="padding:6px 8px;">
@@ -3952,7 +3958,65 @@ var qrcode = function() {
     if (!filas.length) throw new Error('No se cambió ningún producto (revisá los permisos)');
   }
 
+  // ---- Orden de la carta ----
+  // La carta se ordena por el número "orden" de cada producto, y cada categoría aparece donde
+  // aparece su primer producto. Para mover algo se reacomoda todo y se guarda en bloques
+  // (categoría 1 = 1001, 1002…; categoría 2 = 2001, 2002…), cambiando solo lo que hace falta.
+  async function guardarOrdenCarta(categoriasOrdenadas){   // [{ cat, items:[item,...] }, ...]
+    const cambios = [];
+    categoriasOrdenadas.forEach((c, ci) => {
+      c.items.forEach((it, ji) => {
+        const nuevo = (ci + 1) * 1000 + (ji + 1);
+        if (Number(it.orden) !== nuevo) cambios.push({ id: it.id, orden: nuevo });
+      });
+    });
+    for (let i = 0; i < cambios.length; i += 8) {
+      await Promise.all(cambios.slice(i, i + 8).map(c => sbUpdate('menu_items', c.id, { orden: c.orden })));
+    }
+  }
+
+  function categoriasActuales(){
+    const mapa = new Map();
+    menuCache.forEach(it => {            // menuCache ya viene ordenado por "orden"
+      if (!mapa.has(it.categoria)) mapa.set(it.categoria, []);
+      mapa.get(it.categoria).push(it);
+    });
+    return Array.from(mapa, ([cat, items]) => ({ cat, items }));
+  }
+
+  async function moverCategoria(cat, dir){
+    const lista = categoriasActuales();
+    const i = lista.findIndex(c => c.cat === cat);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= lista.length) return;
+    [lista[i], lista[j]] = [lista[j], lista[i]];
+    await guardarOrdenCarta(lista);
+  }
+
+  async function moverProducto(id, dir){
+    const lista = categoriasActuales();
+    const c = lista.find(x => x.items.some(it => String(it.id) === String(id)));
+    if (!c) return;
+    const i = c.items.findIndex(it => String(it.id) === String(id));
+    const j = i + dir;
+    if (j < 0 || j >= c.items.length) return;
+    [c.items[i], c.items[j]] = [c.items[j], c.items[i]];
+    await guardarOrdenCarta(lista);
+  }
+
   function cablearCategorias(cont){
+    cont.querySelectorAll('.mover-cat, .mover-item').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const dir = parseInt(btn.dataset.dir, 10);
+        cont.querySelectorAll('.mover-cat, .mover-item').forEach(b => { b.disabled = true; });
+        try {
+          if (btn.classList.contains('mover-cat')) await moverCategoria(btn.dataset.cat, dir);
+          else await moverProducto(btn.dataset.id, dir);
+        } catch (err) { alert('No se pudo cambiar el orden: ' + err.message); }
+        await cargarMenu(true);
+      });
+    });
+
     cont.querySelectorAll('.cat-nombre').forEach(inp => {
       inp.addEventListener('change', async () => {
         const viejo = inp.dataset.cat;
@@ -4790,7 +4854,11 @@ var qrcode = function() {
     const precio = Number(document.getElementById('nuevo-precio').value);
     const tipo = document.getElementById('nuevo-tipo').value;
     if (!categoria || !nombre || !precio) { alert('Completá categoría, nombre y precio.'); return; }
-    try { await sbInsert('menu_items', { categoria, nombre, precio, orden: 99, tipo }); } catch (err) { alert('No se pudo agregar: ' + err.message); return; }
+    const ordenesCat = menuCache.filter(it => it.categoria === categoria).map(it => Number(it.orden) || 0);
+    const ordenesTodas = menuCache.map(it => Number(it.orden) || 0);
+    // Categoría que ya existe: queda al final de ella. Categoría nueva: queda al final de la carta.
+    const orden = (ordenesCat.length ? Math.max(...ordenesCat) : (ordenesTodas.length ? Math.max(...ordenesTodas) : 0)) + 1;
+    try { await sbInsert('menu_items', { categoria, nombre, precio, orden, tipo }); } catch (err) { alert('No se pudo agregar: ' + err.message); return; }
     document.getElementById('nuevo-categoria').value = '';
     document.getElementById('nuevo-nombre').value = '';
     document.getElementById('nuevo-precio').value = '';
