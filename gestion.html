@@ -160,6 +160,7 @@
       <button data-tab="cocina">Cocina</button>
       <button data-tab="atencion">Atención</button>
       <button data-tab="tiempos">Tiempos</button>
+      <button data-tab="ingresos">Ingresos</button>
     </nav>
 
     <section class="panel active" id="panel-reservas">
@@ -319,6 +320,33 @@
         <p style="color:var(--text-dim); font-size:0.9rem;">El cliente pidió esto “para después”. No le llega a cocina ni a la barra hasta que lo largues.</p>
       </div>
       <div id="atencion-espera" style="display:flex; flex-direction:column; gap:12px;"></div>
+    </section>
+
+    <section class="panel" id="panel-ingresos">
+      <div class="section-head">
+        <div><h2>Ingresos</h2><p>Lo cobrado, por medio de pago. Cada jornada va de 6 de la mañana a 6 de la mañana.</p></div>
+        <button class="btn-primary" id="btn-cargar-ingreso" style="padding:10px 16px;">+ Cargar ingreso</button>
+      </div>
+
+      <div id="ingreso-form" hidden style="border:1px solid var(--line); border-radius:6px; padding:16px; margin-bottom:18px; max-width:620px;">
+        <div style="font-weight:600; margin-bottom:10px;">Cargar un ingreso suelto</div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+          <input type="number" id="ingreso-monto" min="0" placeholder="Monto" style="width:130px;">
+          <select id="ingreso-metodo"></select>
+          <input type="text" id="ingreso-nota" placeholder="Nota (ej: entrada, venta aparte)" style="flex:1; min-width:180px;">
+          <button class="btn-primary" id="ingreso-guardar" style="padding:9px 16px;">Guardar</button>
+        </div>
+      </div>
+
+      <div id="ingresos-filtros" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:20px;"></div>
+      <div id="ingresos-resumen"></div>
+      <h3 style="margin:28px 0 10px; font-size:1.1rem;">Detalle de cobros</h3>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead><tr><th>Hora</th><th>Mesa</th><th>Medio de pago</th><th>Monto</th><th>Nota</th><th></th></tr></thead>
+          <tbody id="ingresos-body"><tr><td colspan="6" class="empty">Cargando…</td></tr></tbody>
+        </table>
+      </div>
     </section>
 
     <section class="panel" id="panel-tiempos">
@@ -2910,7 +2938,7 @@ var qrcode = function() {
   let rolActual = 'dueno';
 
   const TABS_POR_ROL = {
-    dueno: ['reservas','calendario','pedidos','precios','clientes','mesas','pedir','embajadoras','cocteleria','cocina','atencion','tiempos'],
+    dueno: ['reservas','calendario','pedidos','precios','clientes','mesas','pedir','embajadoras','cocteleria','cocina','atencion','tiempos','ingresos'],
     recepcion: ['reservas','calendario','pedidos','precios','clientes','mesas','pedir','embajadoras','cocteleria','cocina','atencion','tiempos'],
     cocteleria: ['cocteleria'],
     cocina: ['cocina'],
@@ -3002,6 +3030,7 @@ var qrcode = function() {
       if (btn.dataset.tab === 'cocina') cargarCocina();
       if (btn.dataset.tab === 'atencion') cargarAtencion();
       if (btn.dataset.tab === 'tiempos') cargarTiempos();
+      if (btn.dataset.tab === 'ingresos') abrirIngresos();
     });
   });
 
@@ -4350,10 +4379,101 @@ var qrcode = function() {
     renderCartaTicket();
   }
 
+  // Medios de pago (también se usan en la pestaña Ingresos)
+  const METODOS_PAGO = [
+    { id: 'efectivo',    label: 'Efectivo',     color: '#7C8A5E' },
+    { id: 'mercadopago', label: 'Mercado Pago', color: '#5B8DB8' },
+    { id: 'debito',      label: 'Débito',       color: '#C68A4C' },
+    { id: 'credito',     label: 'Crédito',      color: '#B07A9E' },
+  ];
+  const etiquetaMetodo = id => (METODOS_PAGO.find(m => m.id === id) || { label: id }).label;
+
+  let cobroEstado = null;   // null = no se está cobrando; si no: { mesa, dividir, metodo, montos }
+
+  // Arma las líneas del ticket a partir de lo que hay en la cuenta
+  function armarItemsTicket(){
+    const items = Object.entries(carritoTicket)
+      .filter(([, cant]) => cant > 0)
+      .map(([id, cant]) => {
+        const item = menuCache.find(m => String(m.id) === String(id));
+        const fila = { nombre: item.nombre, precio: item.precio, cantidad: cant };
+        // Promos de pintas: la comandera imprime el nombre de la promo y las
+        // variedades para tildar con lapicera (no las cervezas elegidas).
+        if (item.promo_pintas) {
+          fila.promo_pintas = item.promo_pintas;
+          fila.opciones = menuCache.filter(m => m.elegible_promo_pintas).map(m => m.nombre.replace(/^Pinta\s+/i, ''));
+        }
+        return fila;
+      });
+    const total = items.reduce((acc, it) => acc + it.precio * it.cantidad, 0);
+    return { items, total };
+  }
+
+  function panelCobroHtml(total){
+    const c = cobroEstado;
+    const filas = c.dividir ? `
+      <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:10px;">
+        ${METODOS_PAGO.map(m => `
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${m.color};"></span>
+            <span style="width:110px;">${m.label}</span>
+            <input type="number" min="0" class="cobro-monto" data-metodo="${m.id}" value="${c.montos[m.id] || ''}" placeholder="$ 0" style="width:120px;">
+            <button type="button" class="icon-btn cobro-resto" data-metodo="${m.id}" title="Poner lo que falta" style="width:auto; padding:5px 10px; font-size:0.8rem;">= lo que falta</button>
+          </div>`).join('')}
+      </div>
+      <div id="cobro-falta" style="font-size:14px; margin-bottom:10px;"></div>
+    ` : `
+      <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+        ${METODOS_PAGO.map(m => `
+          <button type="button" class="icon-btn cobro-metodo" data-metodo="${m.id}"
+            style="width:auto; padding:10px 16px; font-size:0.95rem; ${c.metodo === m.id ? `border-color:${m.color}; color:${m.color}; font-weight:600; box-shadow:0 0 0 1px ${m.color};` : ''}">${m.label}</button>`).join('')}
+      </div>`;
+    return `
+      <div id="panel-cobro" style="margin-top:16px; border:1px solid var(--copper); border-radius:6px; padding:16px;">
+        <div style="font-weight:600; margin-bottom:12px;">Cobrar ${money(total)} — ¿cómo pagaron?</div>
+        ${filas}
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+          <button type="button" class="btn-primary" id="cobro-confirmar" disabled style="padding:10px 18px;">Cobrar y enviar ticket</button>
+          <button type="button" class="icon-btn" id="cobro-cancelar" style="width:auto; padding:10px 16px;">Cancelar</button>
+          <button type="button" class="icon-btn" id="cobro-dividir" style="width:auto; padding:10px 14px; font-size:0.85rem;">${c.dividir ? 'Un solo medio de pago' : 'Dividir entre varios medios'}</button>
+        </div>
+      </div>`;
+  }
+
+  // Lista de pagos según lo elegido, o null si todavía no está completo
+  function pagosDelCobro(total){
+    const c = cobroEstado;
+    if (!c.dividir) return c.metodo ? [{ metodo: c.metodo, monto: total }] : null;
+    const pagos = METODOS_PAGO.map(m => ({ metodo: m.id, monto: Number(c.montos[m.id]) || 0 })).filter(p => p.monto > 0);
+    const suma = pagos.reduce((a, p) => a + p.monto, 0);
+    return (pagos.length && Math.abs(suma - total) < 0.5) ? pagos : null;
+  }
+
+  async function enviarCobro(items, total, pagos, forzar){
+    try {
+      await sbRpc('registrar_cobro', { p_mesa: mesaSeleccionada, p_items: items, p_total: total, p_pagos: pagos, p_nota: null, p_forzar: !!forzar });
+    } catch (err) {
+      if (String(err.message).includes('YA_COBRADA') && !forzar) {
+        if (confirm(`La Mesa ${mesaSeleccionada} ya tiene un cobro registrado.\n\n¿Querés cobrar de nuevo (por ejemplo, porque pidieron algo más)?`)) {
+          return enviarCobro(items, total, pagos, true);
+        }
+        return false;
+      }
+      alert('No se pudo cobrar: ' + err.message);
+      return false;
+    }
+    return true;
+  }
+
   function renderCartaTicket(){
     const cont = document.getElementById('mesa-ticket-carta');
     const mesaSel = mesasCache.find(m => m.mesa === mesaSeleccionada);
-    if (mesaSeleccionada === null || !mostrarCartaTicket || !mesaSel || mesaSel.estado !== 'ocupada') { cont.innerHTML = ''; return; }
+    if (mesaSeleccionada === null || !mostrarCartaTicket || !mesaSel || mesaSel.estado !== 'ocupada') { cont.innerHTML = ''; cobroEstado = null; return; }
+    if (cobroEstado && cobroEstado.mesa !== mesaSeleccionada) cobroEstado = null;
+
+    // Si se está escribiendo un monto, el refresco automático no redibuja
+    const activo = document.activeElement;
+    if (activo && cont.contains(activo) && activo.tagName === 'INPUT') return;
 
     if (!menuCache.length) {
       cont.innerHTML = `<p class="empty">Cargando carta…</p>`;
@@ -4399,8 +4519,12 @@ var qrcode = function() {
         </div>
         <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--line); padding-top:16px;">
           <span style="font-family:'Fraunces',serif; font-style:italic; color:var(--copper); font-size:1.3rem;">${money(totalCarrito)}</span>
-          <button class="btn-primary" id="btn-generar-ticket" ${hayItems ? '' : 'disabled'} style="padding:12px 22px; font-size:1rem;">Generar ticket</button>
+          <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end;">
+            <button class="icon-btn" id="btn-generar-ticket" ${hayItems ? '' : 'disabled'} style="width:auto; padding:12px 18px; font-size:0.95rem;" title="Imprime la cuenta para el cliente, sin registrar el cobro">Generar ticket</button>
+            <button class="btn-primary" id="btn-cobrar" ${hayItems ? '' : 'disabled'} style="padding:12px 22px; font-size:1rem;">💳 Cobrar</button>
+          </div>
         </div>
+        ${cobroEstado && hayItems ? panelCobroHtml(totalCarrito) : ''}
       </div>
     `;
 
@@ -4423,19 +4547,7 @@ var qrcode = function() {
     const btnGenerar = document.getElementById('btn-generar-ticket');
     if (btnGenerar) {
       btnGenerar.addEventListener('click', async () => {
-        const items = Object.entries(carritoTicket)
-          .filter(([, cant]) => cant > 0)
-          .map(([id, cant]) => {
-            const item = menuCache.find(m => String(m.id) === String(id));
-            const fila = { nombre: item.nombre, precio: item.precio, cantidad: cant };
-            // Promos de pintas: la comandera imprime el nombre de la promo y las
-            // variedades para tildar con lapicera (no las cervezas elegidas).
-            if (item.promo_pintas) {
-              fila.promo_pintas = item.promo_pintas;
-              fila.opciones = menuCache.filter(m => m.elegible_promo_pintas).map(m => m.nombre.replace(/^Pinta\s+/i, ''));
-            }
-            return fila;
-          });
+        const { items } = armarItemsTicket();
         if (!items.length) return;
         const total = items.reduce((acc, it) => acc + it.precio * it.cantidad, 0);
 
@@ -4455,7 +4567,246 @@ var qrcode = function() {
         renderCartaTicket();
       });
     }
+
+    // ---- Cobrar ----
+    const btnCobrar = document.getElementById('btn-cobrar');
+    if (btnCobrar) {
+      btnCobrar.addEventListener('click', () => {
+        cobroEstado = cobroEstado ? null : { mesa: mesaSeleccionada, dividir: false, metodo: null, montos: {} };
+        renderCartaTicket();
+      });
+    }
+    if (cobroEstado && hayItems) {
+      const refrescarEstadoCobro = () => {
+        const pagos = pagosDelCobro(totalCarrito);
+        const confirmar = document.getElementById('cobro-confirmar');
+        if (confirmar) confirmar.disabled = !pagos;
+        const falta = document.getElementById('cobro-falta');
+        if (falta) {
+          const suma = METODOS_PAGO.reduce((a, m) => a + (Number(cobroEstado.montos[m.id]) || 0), 0);
+          const resto = totalCarrito - suma;
+          falta.innerHTML = resto === 0 ? '<span style="color:#7C8A5E;">✔ Los montos coinciden con el total</span>'
+            : resto > 0 ? `Falta cargar <strong>${money(resto)}</strong>`
+            : `<span style="color:#C97878;">Te pasaste por ${money(-resto)}</span>`;
+        }
+      };
+      refrescarEstadoCobro();
+
+      cont.querySelectorAll('.cobro-metodo').forEach(b => b.addEventListener('click', () => {
+        cobroEstado.metodo = b.dataset.metodo;
+        renderCartaTicket();
+      }));
+      cont.querySelectorAll('.cobro-monto').forEach(inp => inp.addEventListener('input', () => {
+        cobroEstado.montos[inp.dataset.metodo] = inp.value;
+        refrescarEstadoCobro();
+      }));
+      cont.querySelectorAll('.cobro-resto').forEach(b => b.addEventListener('click', () => {
+        const otros = METODOS_PAGO.filter(m => m.id !== b.dataset.metodo).reduce((a, m) => a + (Number(cobroEstado.montos[m.id]) || 0), 0);
+        cobroEstado.montos[b.dataset.metodo] = Math.max(totalCarrito - otros, 0) || '';
+        renderCartaTicket();
+      }));
+      document.getElementById('cobro-dividir').addEventListener('click', () => {
+        cobroEstado.dividir = !cobroEstado.dividir;
+        renderCartaTicket();
+      });
+      document.getElementById('cobro-cancelar').addEventListener('click', () => {
+        cobroEstado = null;
+        renderCartaTicket();
+      });
+      document.getElementById('cobro-confirmar').addEventListener('click', async () => {
+        const { items, total } = armarItemsTicket();
+        const pagos = pagosDelCobro(total);
+        if (!items.length || !pagos) return;
+        const boton = document.getElementById('cobro-confirmar');
+        boton.disabled = true;
+        boton.textContent = 'Cobrando…';
+        const ok = await enviarCobro(items, total, pagos, false);
+        if (!ok) { boton.disabled = false; boton.textContent = 'Cobrar y enviar ticket'; return; }
+        const detalle = pagos.length === 1 ? etiquetaMetodo(pagos[0].metodo) : pagos.map(p => `${etiquetaMetodo(p.metodo)} ${money(p.monto)}`).join(' + ');
+        mostrarAvisoPanel(`💳 Mesa ${mesaSeleccionada} cobrada: ${money(total)} con ${detalle}. Ticket enviado.`);
+        cobroEstado = null;
+        carritoTicket = {};
+        mostrarCartaTicket = false;
+        renderCartaTicket();
+      });
+    }
   }
+
+  // ---------- INGRESOS ----------
+  let ingresosFiltro = 'hoy';           // hoy | ayer | semana | mes | elegir
+  let ingresosDesde = '';               // "YYYY-MM-DD" cuando el filtro es "elegir"
+  let ingresosHasta = '';
+
+  // La jornada del bar arranca a las 6 de la mañana: antes de esa hora todavía es la jornada de ayer.
+  function inicioJornada(ahora){
+    const x = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate(), 6, 0, 0, 0);
+    if (ahora < x) x.setDate(x.getDate() - 1);
+    return x;
+  }
+  function sumarDias(fecha, n){ const x = new Date(fecha); x.setDate(x.getDate() + n); return x; }
+
+  function rangoIngresos(){
+    const base = inicioJornada(new Date());
+    if (ingresosFiltro === 'ayer') return { desde: sumarDias(base, -1), hasta: base };
+    if (ingresosFiltro === 'semana') {
+      const diasDesdeLunes = (base.getDay() + 6) % 7;
+      return { desde: sumarDias(base, -diasDesdeLunes), hasta: sumarDias(base, 1) };
+    }
+    if (ingresosFiltro === 'mes') return { desde: new Date(base.getFullYear(), base.getMonth(), 1, 6, 0, 0, 0), hasta: sumarDias(base, 1) };
+    if (ingresosFiltro === 'elegir' && ingresosDesde) {
+      const [y, m, d] = ingresosDesde.split('-').map(Number);
+      const desde = new Date(y, m - 1, d, 6, 0, 0, 0);
+      let hasta = sumarDias(desde, 1);
+      if (ingresosHasta) { const [y2, m2, d2] = ingresosHasta.split('-').map(Number); hasta = new Date(y2, m2 - 1, d2 + 1, 6, 0, 0, 0); }
+      return { desde, hasta };
+    }
+    return { desde: base, hasta: sumarDias(base, 1) };
+  }
+
+  function dibujarFiltrosIngresos(){
+    const cont = document.getElementById('ingresos-filtros');
+    const filtros = [['hoy', 'Hoy'], ['ayer', 'Ayer'], ['semana', 'Esta semana'], ['mes', 'Este mes'], ['elegir', 'Elegir fechas']];
+    cont.innerHTML = filtros.map(([id, texto]) => `
+      <button type="button" class="icon-btn ingresos-filtro" data-filtro="${id}"
+        style="width:auto; padding:8px 14px; ${ingresosFiltro === id ? 'border-color:var(--copper); color:var(--copper); font-weight:600;' : ''}">${texto}</button>`).join('') + `
+      ${ingresosFiltro === 'elegir' ? `
+        <input type="date" id="ingresos-desde" value="${ingresosDesde}"> <span style="color:var(--text-dim);">a</span>
+        <input type="date" id="ingresos-hasta" value="${ingresosHasta}">` : ''}`;
+    cont.querySelectorAll('.ingresos-filtro').forEach(b => b.addEventListener('click', () => {
+      ingresosFiltro = b.dataset.filtro;
+      dibujarFiltrosIngresos();
+      cargarIngresos();
+    }));
+    const d1 = document.getElementById('ingresos-desde'), d2 = document.getElementById('ingresos-hasta');
+    if (d1) d1.addEventListener('change', () => { ingresosDesde = d1.value; cargarIngresos(); });
+    if (d2) d2.addEventListener('change', () => { ingresosHasta = d2.value; cargarIngresos(); });
+  }
+
+  function abrirIngresos(){
+    dibujarFiltrosIngresos();
+    cargarIngresos();
+  }
+
+  // Torta (anillo) con SVG, sin librerías
+  function tortaHtml(porMetodo, total){
+    const R = 15.9155;   // circunferencia = 100
+    let acumulado = 0;
+    const arcos = METODOS_PAGO.map(m => {
+      const pct = total > 0 ? (porMetodo[m.id] / total) * 100 : 0;
+      if (pct <= 0) return '';
+      const gap = pct > 3 ? 0.6 : 0;   // pequeña separación entre porciones
+      const arco = `<circle cx="21" cy="21" r="${R}" fill="none" stroke="${m.color}" stroke-width="6"
+        stroke-dasharray="${Math.max(pct - gap, 0.1)} ${100 - Math.max(pct - gap, 0.1)}" stroke-dashoffset="${25 - acumulado}"></circle>`;
+      acumulado += pct;
+      return arco;
+    }).join('');
+    return `
+      <svg viewBox="0 0 42 42" width="240" height="240" role="img" aria-label="Ingresos por medio de pago">
+        <circle cx="21" cy="21" r="${R}" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="6"></circle>
+        ${arcos}
+        <text x="21" y="19.5" text-anchor="middle" font-size="2.6" fill="currentColor" opacity="0.6">Total</text>
+        <text x="21" y="24.5" text-anchor="middle" font-size="4" font-weight="600" fill="currentColor">${money(total)}</text>
+      </svg>`;
+  }
+
+  async function cargarIngresos(){
+    const resumen = document.getElementById('ingresos-resumen');
+    const body = document.getElementById('ingresos-body');
+    // Si se está tocando un desplegable de la lista, no se redibuja
+    const activo = document.activeElement;
+    if (activo && body.contains(activo)) return;
+
+    const { desde, hasta } = rangoIngresos();
+    let filas;
+    try {
+      filas = await sbSelect('cobros', `select=*&creado_en=gte.${desde.toISOString()}&creado_en=lt.${hasta.toISOString()}&order=creado_en.desc&limit=2000`);
+    } catch (err) {
+      resumen.innerHTML = `<p class="empty">Error al cargar (${esc(err.message)}). ¿Ya corriste el SQL de ingresos?</p>`;
+      return;
+    }
+    filas = filas || [];
+
+    const porMetodo = {}, cantidad = {};
+    METODOS_PAGO.forEach(m => { porMetodo[m.id] = 0; cantidad[m.id] = 0; });
+    filas.forEach(f => { porMetodo[f.metodo] = (porMetodo[f.metodo] || 0) + Number(f.monto); cantidad[f.metodo] = (cantidad[f.metodo] || 0) + 1; });
+    const total = METODOS_PAGO.reduce((a, m) => a + porMetodo[m.id], 0);
+    const cobrosDeMesa = new Set(filas.filter(f => f.tipo === 'mesa').map(f => f.grupo_id));
+    const totalMesas = filas.filter(f => f.tipo === 'mesa').reduce((a, f) => a + Number(f.monto), 0);
+    const promedio = cobrosDeMesa.size ? totalMesas / cobrosDeMesa.size : null;
+
+    resumen.innerHTML = `
+      <div style="display:flex; gap:40px; flex-wrap:wrap; align-items:center;">
+        <div style="color:var(--text);">${tortaHtml(porMetodo, total)}</div>
+        <div style="flex:1; min-width:260px; max-width:460px;">
+          ${METODOS_PAGO.map(m => {
+            const pct = total > 0 ? Math.round((porMetodo[m.id] / total) * 100) : 0;
+            return `
+            <div style="display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid var(--line); ${porMetodo[m.id] === 0 ? 'opacity:0.45;' : ''}">
+              <span style="width:12px; height:12px; border-radius:50%; background:${m.color}; flex-shrink:0;"></span>
+              <span style="flex:1;">${m.label}<span style="color:var(--text-dim); font-size:12px;"> · ${cantidad[m.id]} cobro${cantidad[m.id] === 1 ? '' : 's'}</span></span>
+              <strong>${money(porMetodo[m.id])}</strong>
+              <span style="width:44px; text-align:right; color:var(--text-dim);">${pct}%</span>
+            </div>`;
+          }).join('')}
+          <div style="display:flex; justify-content:space-between; padding:12px 0 0; font-size:14px; color:var(--text-dim);">
+            <span>${cobrosDeMesa.size} mesa${cobrosDeMesa.size === 1 ? '' : 's'} cobrada${cobrosDeMesa.size === 1 ? '' : 's'}</span>
+            <span>${promedio !== null ? 'Promedio por mesa: ' + money(promedio) : ''}</span>
+          </div>
+        </div>
+      </div>`;
+
+    if (!filas.length) { body.innerHTML = `<tr><td colspan="6" class="empty">No hay cobros en este período.</td></tr>`; return; }
+    const variosDias = (hasta - desde) > 26 * 3600 * 1000;
+    body.innerHTML = filas.map(f => {
+      const fecha = new Date(f.creado_en);
+      const hora = fecha.toLocaleTimeString('es-AR', HORA_FMT);
+      const dia = fecha.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' });
+      return `
+        <tr>
+          <td>${variosDias ? dia + ' · ' : ''}${hora}</td>
+          <td>${f.tipo === 'mesa' ? 'Mesa ' + f.mesa : 'Ingreso suelto'}</td>
+          <td><select class="ingreso-metodo-sel" data-id="${f.id}" style="padding:5px 8px;">
+            ${METODOS_PAGO.map(m => `<option value="${m.id}" ${m.id === f.metodo ? 'selected' : ''}>${m.label}</option>`).join('')}
+          </select></td>
+          <td>${money(f.monto)}</td>
+          <td style="color:var(--text-dim);">${esc(f.nota || '')}</td>
+          <td><button class="icon-btn ingreso-borrar" data-id="${f.id}" title="Borrar este cobro" style="width:28px; height:28px; padding:0;">✕</button></td>
+        </tr>`;
+    }).join('');
+
+    body.querySelectorAll('.ingreso-metodo-sel').forEach(sel => sel.addEventListener('change', async () => {
+      try { await sbUpdate('cobros', sel.dataset.id, { metodo: sel.value }); }
+      catch (err) { alert('No se pudo cambiar: ' + err.message); }
+      sel.blur();
+      cargarIngresos();
+    }));
+    body.querySelectorAll('.ingreso-borrar').forEach(btn => btn.addEventListener('click', async () => {
+      if (!confirm('¿Borrar este cobro? Va a dejar de contar en los ingresos.')) return;
+      try { await sbDelete('cobros', btn.dataset.id); }
+      catch (err) { alert('No se pudo borrar: ' + err.message); return; }
+      cargarIngresos();
+    }));
+  }
+
+  document.getElementById('ingreso-metodo').innerHTML = METODOS_PAGO.map(m => `<option value="${m.id}">${m.label}</option>`).join('');
+  document.getElementById('btn-cargar-ingreso').addEventListener('click', () => {
+    const f = document.getElementById('ingreso-form');
+    f.hidden = !f.hidden;
+  });
+  document.getElementById('ingreso-guardar').addEventListener('click', async () => {
+    const monto = Number(document.getElementById('ingreso-monto').value);
+    const metodo = document.getElementById('ingreso-metodo').value;
+    const nota = document.getElementById('ingreso-nota').value.trim();
+    if (!monto || monto <= 0) { alert('Cargá un monto mayor a cero.'); return; }
+    try {
+      await sbRpc('registrar_cobro', { p_mesa: null, p_items: null, p_total: monto, p_pagos: [{ metodo, monto }], p_nota: nota || null, p_forzar: false });
+    } catch (err) { alert('No se pudo guardar: ' + err.message); return; }
+    document.getElementById('ingreso-monto').value = '';
+    document.getElementById('ingreso-nota').value = '';
+    document.getElementById('ingreso-form').hidden = true;
+    mostrarAvisoPanel(`💰 Ingreso cargado: ${money(monto)} (${etiquetaMetodo(metodo)}).`);
+    cargarIngresos();
+  });
 
   // ---------- PEDIR (comanda de cocina sin precios) ----------
   let carritoPedir = {};      // { menuItemId: cantidad }
@@ -4992,6 +5343,7 @@ var qrcode = function() {
         cargarEmbajadoras();
         cargarTiempos();
       }
+      if (rolActual === 'dueno' && document.getElementById('panel-ingresos').classList.contains('active')) cargarIngresos();
       cargarCocteleria();
       cargarCocina();
       cargarAtencion();
