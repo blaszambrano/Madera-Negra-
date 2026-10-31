@@ -2978,11 +2978,15 @@ var qrcode = function() {
     if (badge) { badge.textContent = texto; badge.style.display = ''; }
   }
 
+  function puedeVerHistorial(){ return rolActual === 'dueno' || rolActual === 'recepcion'; }
+
   function aplicarVisibilidadPorRol(){
     const permitidas = TABS_POR_ROL[rolActual] || TABS_POR_ROL.dueno;
     document.querySelectorAll('nav.tabs button').forEach(btn => {
       btn.style.display = permitidas.includes(btn.dataset.tab) ? '' : 'none';
     });
+    // El historial de pedidos lo ven solo la cuenta del dueño y la de recepción
+    document.getElementById('btn-historial').style.display = puedeVerHistorial() ? '' : 'none';
     document.querySelectorAll('nav.tabs button').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('section.panel').forEach(p => p.classList.remove('active'));
     const primera = permitidas[0];
@@ -3423,6 +3427,7 @@ var qrcode = function() {
   let historialSemanaRef = new Date();
 
   document.getElementById('btn-historial').addEventListener('click', () => {
+    if (!puedeVerHistorial()) return;
     const activo = document.querySelector('nav.tabs button.active');
     tabActivaAntesDeHistorial = activo ? activo.dataset.tab : null;
     document.getElementById('nav-tabs').style.display = 'none';
