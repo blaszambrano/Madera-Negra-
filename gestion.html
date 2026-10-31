@@ -2939,7 +2939,7 @@ var qrcode = function() {
 
   const TABS_POR_ROL = {
     dueno: ['reservas','calendario','pedidos','precios','clientes','mesas','pedir','embajadoras','cocteleria','cocina','atencion','tiempos','ingresos'],
-    recepcion: ['reservas','calendario','pedidos','precios','clientes','mesas','pedir','embajadoras','cocteleria','cocina','atencion','tiempos'],
+    recepcion: ['reservas','calendario','pedidos','precios','clientes','mesas','pedir','cocteleria','cocina','atencion','tiempos'],
     cocteleria: ['cocteleria'],
     cocina: ['cocina'],
     atencion: ['atencion'],
@@ -3008,7 +3008,7 @@ var qrcode = function() {
       cargarPromos();
       cargarClientes();
       cargarMesas();
-      cargarEmbajadoras();
+      if (rolActual === 'dueno') cargarEmbajadoras();
       cargarTiempos();
     }
     cargarCocteleria();
@@ -5345,7 +5345,7 @@ var qrcode = function() {
         cargarPromos();
         cargarClientes();
         if (!modoEdicionMesas) cargarMesas();
-        cargarEmbajadoras();
+        if (rolActual === 'dueno') cargarEmbajadoras();
         cargarTiempos();
       }
       if (rolActual === 'dueno' && document.getElementById('panel-ingresos').classList.contains('active')) cargarIngresos();
