@@ -142,12 +142,17 @@
       </div>
       <div style="display:flex; gap:10px; align-items:center;">
         <span id="badge-cuenta" style="display:none; border:1px solid var(--copper); color:var(--copper); border-radius:20px; padding:6px 14px; font-size:0.85rem; font-weight:600; white-space:nowrap;"></span>
+        <button class="icon-btn" id="btn-vista" style="display:none; width:auto; padding:8px 14px; font-size:0.85rem;">Ver panel completo</button>
         <button class="icon-btn" id="btn-historial" style="width:auto; padding:8px 14px; font-size:0.85rem;">Historial de pedidos</button>
         <button class="btn-ghost" id="logout-btn">Cerrar sesión</button>
       </div>
     </header>
 
     <nav class="tabs" id="nav-tabs">
+      <button data-tab="resumen">Resumen</button>
+      <button data-tab="vendido">Lo más vendido</button>
+      <button data-tab="ingresos">Ingresos</button>
+      <button data-tab="gastos">Gastos</button>
       <button data-tab="reservas" class="active">Reservas</button>
       <button data-tab="calendario">Calendario</button>
       <button data-tab="pedidos">Pedidos por mesa</button>
@@ -160,7 +165,6 @@
       <button data-tab="cocina">Cocina</button>
       <button data-tab="atencion">Atención</button>
       <button data-tab="tiempos">Tiempos</button>
-      <button data-tab="ingresos">Ingresos</button>
     </nav>
 
     <section class="panel active" id="panel-reservas">
@@ -322,6 +326,51 @@
       <div id="atencion-espera" style="display:flex; flex-direction:column; gap:12px;"></div>
     </section>
 
+    <section class="panel" id="panel-resumen">
+      <div class="section-head">
+        <div><h2>Resumen</h2><p>Cómo viene el negocio. Cada jornada va de 6 de la mañana a 6 de la mañana.</p></div>
+      </div>
+      <div id="resumen-filtros" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:20px;"></div>
+      <div id="resumen-contenido"><p class="empty">Cargando…</p></div>
+    </section>
+
+    <section class="panel" id="panel-vendido">
+      <div class="section-head">
+        <div><h2>Lo más vendido</h2><p>Qué se pide más, por unidades y por plata.</p></div>
+      </div>
+      <div id="vendido-filtros" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px;"></div>
+      <label style="display:flex; align-items:center; gap:8px; color:var(--text-dim); font-size:0.85rem; margin-bottom:20px;">
+        <input type="checkbox" id="vendido-pruebas"> Incluir pedidos de prueba (anteriores al 22/10)
+      </label>
+      <div id="vendido-contenido"><p class="empty">Cargando…</p></div>
+    </section>
+
+    <section class="panel" id="panel-gastos">
+      <div class="section-head">
+        <div><h2>Gastos</h2><p>Lo que sale: mercadería, sueldos, alquiler, servicios y otros. Cada día va de 6 de la mañana a 6 de la mañana.</p></div>
+      </div>
+      <div style="border:1px solid var(--line); border-radius:6px; padding:16px; margin-bottom:18px; max-width:760px;">
+        <div style="font-weight:600; margin-bottom:10px;">Cargar un gasto</div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+          <input type="number" id="gasto-monto" min="0" placeholder="Monto" style="width:130px;">
+          <select id="gasto-categoria"></select>
+          <select id="gasto-metodo"></select>
+          <input type="date" id="gasto-fecha" title="Fecha del gasto">
+          <input type="text" id="gasto-nota" placeholder="Nota (ej: proveedor de cerveza)" style="flex:1; min-width:180px;">
+          <button class="btn-primary" id="gasto-guardar" style="padding:9px 16px;">Guardar</button>
+        </div>
+      </div>
+      <div id="gastos-filtros" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:20px;"></div>
+      <div id="gastos-resumen"></div>
+      <h3 style="margin:28px 0 10px; font-size:1.1rem;">Detalle de gastos</h3>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead><tr><th>Fecha</th><th>Categoría</th><th>Medio de pago</th><th>Monto</th><th>Nota</th><th></th></tr></thead>
+          <tbody id="gastos-body"><tr><td colspan="6" class="empty">Cargando…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
     <section class="panel" id="panel-ingresos">
       <div class="section-head">
         <div><h2>Ingresos</h2><p>Lo cobrado, por medio de pago. Cada jornada va de 6 de la mañana a 6 de la mañana.</p></div>
@@ -385,8 +434,8 @@
       </div>
       <div class="tabla-wrap">
         <table>
-          <thead><tr><th>Mesa</th><th>Fecha</th><th>Qué pidieron (hora de cada cosa)</th><th>Precio</th><th>Cocina</th><th>Coctelería</th><th>Entrega</th></tr></thead>
-          <tbody id="historial-body"><tr><td colspan="6" class="empty">Cargando…</td></tr></tbody>
+          <thead><tr><th>Mesa</th><th>Fecha</th><th>Qué pidieron (hora de cada cosa)</th><th>Precio</th><th>Pago</th><th>Cocina</th><th>Coctelería</th><th>Entrega</th></tr></thead>
+          <tbody id="historial-body"><tr><td colspan="8" class="empty">Cargando…</td></tr></tbody>
         </table>
       </div>
     </section>
@@ -2938,12 +2987,20 @@ var qrcode = function() {
   let rolActual = 'dueno';
 
   const TABS_POR_ROL = {
-    dueno: ['reservas','calendario','pedidos','precios','clientes','mesas','pedir','embajadoras','cocteleria','cocina','atencion','tiempos','ingresos'],
+    dueno: ['resumen','vendido','ingresos','gastos','reservas','calendario','pedidos','precios','clientes','mesas','pedir','embajadoras','cocteleria','cocina','atencion','tiempos'],
     recepcion: ['reservas','calendario','pedidos','precios','clientes','mesas','pedir','cocteleria','cocina','atencion','tiempos'],
     cocteleria: ['cocteleria'],
     cocina: ['cocina'],
     atencion: ['atencion'],
   };
+
+  // El dueño entra a una vista de reportes; con "Ver panel completo" ve todo lo operativo.
+  const TABS_DUENO_REPORTES = ['resumen','vendido','ingresos','gastos','embajadoras'];
+  let vistaCompleta = (() => { try { return localStorage.getItem('mn_vista_completa') === '1'; } catch (e) { return false; } })();
+  function tabsPermitidas(){
+    if (rolActual === 'dueno') return vistaCompleta ? TABS_POR_ROL.dueno : TABS_DUENO_REPORTES;
+    return TABS_POR_ROL[rolActual] || TABS_POR_ROL.dueno;
+  }
 
   // Email de la cuenta con la que se abrió ESTA pestaña. Se guarda en memoria al
   // cargar para que, si en otra pestaña del mismo navegador se entra con otra
@@ -2981,7 +3038,11 @@ var qrcode = function() {
   function puedeVerHistorial(){ return rolActual === 'dueno'; }
 
   function aplicarVisibilidadPorRol(){
-    const permitidas = TABS_POR_ROL[rolActual] || TABS_POR_ROL.dueno;
+    const permitidas = tabsPermitidas();
+    document.getElementById('nav-tabs').style.display = '';
+    const btnVista = document.getElementById('btn-vista');
+    btnVista.style.display = rolActual === 'dueno' ? '' : 'none';
+    btnVista.textContent = vistaCompleta ? 'Volver a reportes' : 'Ver panel completo';
     document.querySelectorAll('nav.tabs button').forEach(btn => {
       btn.style.display = permitidas.includes(btn.dataset.tab) ? '' : 'none';
     });
@@ -2992,6 +3053,7 @@ var qrcode = function() {
     const primera = permitidas[0];
     document.querySelector(`nav.tabs button[data-tab="${primera}"]`)?.classList.add('active');
     document.getElementById('panel-' + primera)?.classList.add('active');
+    return primera;
   }
 
   async function mostrarApp(){
@@ -2999,7 +3061,7 @@ var qrcode = function() {
     appScreen.style.display = 'block';
     await intentarRefrescoSesion();
     await cargarRolActual();
-    aplicarVisibilidadPorRol();
+    const primeraTab = aplicarVisibilidadPorRol();
     const vePanelGeneral = rolActual === 'dueno' || rolActual === 'recepcion';
     if (vePanelGeneral) {
       cargarReservas();
@@ -3014,6 +3076,7 @@ var qrcode = function() {
     cargarCocteleria();
     cargarCocina();
     cargarAtencion();
+    if (['resumen', 'vendido', 'ingresos', 'gastos'].includes(primeraTab)) cargarSegunTab(primeraTab);
     suscribirRealtime();
   }
 
@@ -3026,16 +3089,30 @@ var qrcode = function() {
       document.querySelectorAll('section.panel').forEach(p => p.classList.remove('active'));
       btn.classList.add('active');
       document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
-      if (btn.dataset.tab === 'clientes') cargarClientes();
-      if (btn.dataset.tab === 'mesas') cargarMesas();
-      if (btn.dataset.tab === 'pedir') abrirPedir();
-      if (btn.dataset.tab === 'embajadoras') cargarEmbajadoras();
-      if (btn.dataset.tab === 'cocteleria') cargarCocteleria();
-      if (btn.dataset.tab === 'cocina') cargarCocina();
-      if (btn.dataset.tab === 'atencion') cargarAtencion();
-      if (btn.dataset.tab === 'tiempos') cargarTiempos();
-      if (btn.dataset.tab === 'ingresos') abrirIngresos();
+      cargarSegunTab(btn.dataset.tab);
     });
+  });
+
+  function cargarSegunTab(tab){
+    if (tab === 'clientes') cargarClientes();
+    if (tab === 'mesas') cargarMesas();
+    if (tab === 'pedir') abrirPedir();
+    if (tab === 'embajadoras') cargarEmbajadoras();
+    if (tab === 'cocteleria') cargarCocteleria();
+    if (tab === 'cocina') cargarCocina();
+    if (tab === 'atencion') cargarAtencion();
+    if (tab === 'tiempos') cargarTiempos();
+    if (tab === 'ingresos') abrirIngresos();
+    if (tab === 'resumen') abrirResumen();
+    if (tab === 'vendido') abrirVendido();
+    if (tab === 'gastos') abrirGastos();
+  }
+
+  document.getElementById('btn-vista').addEventListener('click', () => {
+    vistaCompleta = !vistaCompleta;
+    try { localStorage.setItem('mn_vista_completa', vistaCompleta ? '1' : '0'); } catch (e) {}
+    const primera = aplicarVisibilidadPorRol();
+    cargarSegunTab(primera);
   });
 
   // ---------- COCTELERÍA / COCINA / ATENCIÓN ----------
@@ -3436,13 +3513,13 @@ var qrcode = function() {
     document.getElementById('historial-filtro-fecha').value = '';
     historialSemanaRef = new Date();
     cargarHistorialSemana();
-    cargarHistorial();
+    cargarHistorial(true);
   });
 
   document.getElementById('btn-volver-historial').addEventListener('click', () => {
     document.getElementById('panel-historial').classList.remove('active');
     document.getElementById('nav-tabs').style.display = '';
-    const permitidas = TABS_POR_ROL[rolActual] || TABS_POR_ROL.dueno;
+    const permitidas = tabsPermitidas();
     const tab = (tabActivaAntesDeHistorial && permitidas.includes(tabActivaAntesDeHistorial)) ? tabActivaAntesDeHistorial : permitidas[0];
     document.querySelector(`nav.tabs button[data-tab="${tab}"]`)?.classList.add('active');
     document.getElementById('panel-' + tab)?.classList.add('active');
@@ -3509,15 +3586,15 @@ var qrcode = function() {
     cont.querySelectorAll('.dia-card').forEach(btn => {
       btn.addEventListener('click', () => {
         document.getElementById('historial-filtro-fecha').value = btn.dataset.fecha;
-        cargarHistorial();
+        cargarHistorial(true);
       });
     });
   }
 
-  document.getElementById('historial-filtro-fecha').addEventListener('change', () => cargarHistorial());
+  document.getElementById('historial-filtro-fecha').addEventListener('change', () => cargarHistorial(true));
   document.getElementById('historial-limpiar-filtro').addEventListener('click', () => {
     document.getElementById('historial-filtro-fecha').value = '';
-    cargarHistorial();
+    cargarHistorial(true);
   });
 
   // Hora (de Argentina) en que se pidió cada producto. Los productos viejos, de antes
@@ -3536,7 +3613,37 @@ var qrcode = function() {
     ).join('');
   }
 
-  async function cargarHistorial(){
+  // Pagos de cada pedido del historial (tabla cobros) y su edición.
+  // Mientras se edita un pago, el refresco automático no redibuja la tabla.
+  let historialPedidos = [];
+  let historialCobros = {};        // pedido_id -> [{ metodo, monto }]
+  let historialCobrosOk = true;    // false si todavía no se corrió el SQL de ingresos
+  let pagoEdit = null;             // { pedidoId, total, dividir, metodo, montos, habiaCobro }
+
+  async function cobrosDePedidos(ids){
+    const out = {};
+    const trozos = [];
+    for (let i = 0; i < ids.length; i += 50) trozos.push(ids.slice(i, i + 50));
+    const listas = await Promise.all(trozos.map(t =>
+      sbSelect('cobros', `select=pedido_id,metodo,monto&tipo=eq.mesa&pedido_id=in.(${t.join(',')})`)));
+    listas.forEach(l => (l || []).forEach(c => { (out[c.pedido_id] = out[c.pedido_id] || []).push({ metodo: c.metodo, monto: Number(c.monto) }); }));
+    return out;
+  }
+
+  function duracionMaxima(items, filtroFn, campoInicio, campoFin){
+    let max = null;
+    items.forEach(it => {
+      if (!filtroFn(it)) return;
+      if (!it[campoInicio] || !it[campoFin]) return;
+      const dur = new Date(it[campoFin]).getTime() - new Date(it[campoInicio]).getTime();
+      if (max === null || dur > max) max = dur;
+    });
+    return max;
+  }
+
+  async function cargarHistorial(forzar){
+    if (forzar === true) pagoEdit = null;
+    if (pagoEdit) return;     // hay un pago a medio editar: no se pisa
     const body = document.getElementById('historial-body');
     const fechaFiltro = document.getElementById('historial-filtro-fecha').value; // "YYYY-MM-DD" o vacío
 
@@ -3551,40 +3658,187 @@ var qrcode = function() {
     try {
       data = await sbSelect('pedidos', query);
     } catch (err) {
-      body.innerHTML = `<tr><td colspan="7" class="empty">Error al cargar (${err.message}).</td></tr>`; return;
+      body.innerHTML = `<tr><td colspan="8" class="empty">Error al cargar (${esc(err.message)}).</td></tr>`; return;
     }
+    if (pagoEdit) return;   // se empezó a editar mientras cargaba
 
-    if (!data.length) { body.innerHTML = `<tr><td colspan="7" class="empty">No hay pedidos para mostrar.</td></tr>`; return; }
-
-    function maxDuracion(items, filtroFn, campoInicio, campoFin){
-      let max = null;
-      items.forEach(it => {
-        if (!filtroFn(it)) return;
-        if (!it[campoInicio] || !it[campoFin]) return;
-        const dur = new Date(it[campoFin]).getTime() - new Date(it[campoInicio]).getTime();
-        if (max === null || dur > max) max = dur;
-      });
-      return max;
+    try {
+      historialCobros = await cobrosDePedidos((data || []).map(p => p.id));
+      historialCobrosOk = true;
+    } catch (err) {
+      historialCobros = {};
+      historialCobrosOk = false;
     }
+    historialPedidos = data || [];
+    dibujarHistorial();
+  }
+
+  function pagoDelPedidoHtml(p){
+    if (!historialCobrosOk) return '<span style="color:var(--text-dim);">—</span>';
+    const cs = historialCobros[p.id] || [];
+    let contenido;
+    if (!cs.length) {
+      contenido = `<div style="color:var(--red); font-size:0.85rem;">Sin especificar</div>`;
+    } else {
+      const porMetodo = {};
+      cs.forEach(c => { porMetodo[c.metodo] = (porMetodo[c.metodo] || 0) + c.monto; });
+      const metodos = Object.keys(porMetodo);
+      const suma = cs.reduce((a, c) => a + c.monto, 0);
+      contenido = metodos.map(id => {
+        const m = METODOS_PAGO.find(x => x.id === id) || { label: id, color: '#888' };
+        return `<div style="white-space:nowrap; font-size:0.85rem;"><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${m.color}; margin-right:6px;"></span>${m.label}${metodos.length > 1 ? ' ' + money(porMetodo[id]) : ''}</div>`;
+      }).join('') + (Math.abs(suma - Number(p.total || 0)) > 0.5
+        ? `<div style="color:var(--text-dim); font-size:0.75rem;">cobrado ${money(suma)}</div>` : '');
+    }
+    return contenido + `<button type="button" class="icon-btn pago-editar" data-id="${p.id}" style="width:auto; padding:3px 9px; font-size:0.78rem; margin-top:5px;">${cs.length ? 'Cambiar' : 'Elegir'}</button>`;
+  }
+
+  function dibujarHistorial(){
+    const body = document.getElementById('historial-body');
+    const data = historialPedidos;
+    if (!data.length) { body.innerHTML = `<tr><td colspan="8" class="empty">No hay pedidos para mostrar.</td></tr>`; return; }
 
     body.innerHTML = data.map(p => {
       const items = p.items || [];
-      const tCocina = maxDuracion(items, it => it.tipo === 'cocina', 'creado_en', 'listo_en');
-      const tCocteleria = maxDuracion(items, it => it.tipo === 'cocteleria', 'creado_en', 'listo_en');
-      const tEntrega = maxDuracion(items, () => true, 'listo_en', 'entregado_en');
+      const tCocina = duracionMaxima(items, it => it.tipo === 'cocina', 'creado_en', 'listo_en');
+      const tCocteleria = duracionMaxima(items, it => it.tipo === 'cocteleria', 'creado_en', 'listo_en');
+      const tEntrega = duracionMaxima(items, () => true, 'listo_en', 'entregado_en');
       const fecha = new Date(p.creado_en).toLocaleString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
+      const editando = pagoEdit && pagoEdit.pedidoId === p.id;
       return `
         <tr>
           <td>${p.mesa}</td>
           <td>${fecha}</td>
           <td style="font-size:0.88rem;">${lineasItemsConHora(p)}</td>
           <td>${money(p.total)}</td>
+          <td>${pagoDelPedidoHtml(p)}</td>
           <td>${formatearDuracion(tCocina)}</td>
           <td>${formatearDuracion(tCocteleria)}</td>
           <td>${formatearDuracion(tEntrega)}</td>
         </tr>
+        ${editando ? `<tr><td colspan="8">${editorPagoHtml(p)}</td></tr>` : ''}
       `;
     }).join('');
+
+    body.querySelectorAll('.pago-editar').forEach(b => b.addEventListener('click', () => abrirEditorPago(b.dataset.id)));
+    if (pagoEdit) enlazarEditorPago();
+  }
+
+  function abrirEditorPago(pedidoId){
+    const p = historialPedidos.find(x => x.id === pedidoId);
+    if (!p) return;
+    const cs = historialCobros[pedidoId] || [];
+    const montos = {};
+    cs.forEach(c => { montos[c.metodo] = (montos[c.metodo] || 0) + c.monto; });
+    const metodos = Object.keys(montos);
+    pagoEdit = {
+      pedidoId, mesa: p.mesa, total: Number(p.total) || 0,
+      dividir: metodos.length > 1, metodo: metodos.length === 1 ? metodos[0] : null,
+      montos, habiaCobro: cs.length > 0,
+    };
+    dibujarHistorial();
+  }
+
+  function editorPagoHtml(p){
+    const e = pagoEdit;
+    const filas = e.dividir ? `
+      <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:10px;">
+        ${METODOS_PAGO.map(m => `
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${m.color};"></span>
+            <span style="width:110px;">${m.label}</span>
+            <input type="number" min="0" class="pe-monto" data-metodo="${m.id}" value="${e.montos[m.id] || ''}" placeholder="$ 0" style="width:120px;">
+            <button type="button" class="icon-btn pe-resto" data-metodo="${m.id}" style="width:auto; padding:5px 10px; font-size:0.8rem;">= lo que falta</button>
+          </div>`).join('')}
+      </div>
+      <div id="pe-falta" style="font-size:14px; margin-bottom:10px;"></div>` : `
+      <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+        ${METODOS_PAGO.map(m => `
+          <button type="button" class="icon-btn pe-metodo" data-metodo="${m.id}"
+            style="width:auto; padding:10px 16px; font-size:0.95rem; ${e.metodo === m.id ? `border-color:${m.color}; color:${m.color}; font-weight:600; box-shadow:0 0 0 1px ${m.color};` : ''}">${m.label}</button>`).join('')}
+      </div>`;
+    return `
+      <div style="border:1px solid var(--copper); border-radius:6px; padding:14px 16px; margin:4px 0;">
+        <div style="font-weight:600; margin-bottom:12px;">Mesa ${esc(p.mesa)} · ${money(e.total)} — ¿con qué pagaron?</div>
+        ${filas}
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+          <button type="button" class="btn-primary" id="pe-guardar" disabled style="padding:10px 18px;">Guardar</button>
+          <button type="button" class="icon-btn" id="pe-cancelar" style="width:auto; padding:10px 16px;">Cancelar</button>
+          <button type="button" class="icon-btn" id="pe-dividir" style="width:auto; padding:10px 14px; font-size:0.85rem;">${e.dividir ? 'Un solo medio de pago' : 'Dividir entre varios medios'}</button>
+          ${e.habiaCobro ? `<button type="button" class="icon-btn" id="pe-quitar" style="width:auto; padding:10px 14px; font-size:0.85rem; color:var(--red);">Quitar el pago (que quede sin especificar)</button>` : ''}
+        </div>
+      </div>`;
+  }
+
+  function pagosDeEdicion(){
+    const e = pagoEdit;
+    if (!(e.total > 0)) return null;
+    if (!e.dividir) return e.metodo ? [{ metodo: e.metodo, monto: e.total }] : null;
+    const pagos = METODOS_PAGO.map(m => ({ metodo: m.id, monto: Number(e.montos[m.id]) || 0 })).filter(x => x.monto > 0);
+    const suma = pagos.reduce((a, x) => a + x.monto, 0);
+    return (pagos.length && Math.abs(suma - e.total) < 0.5) ? pagos : null;
+  }
+
+  function actualizarEstadoEditorPago(){
+    const e = pagoEdit;
+    const guardar = document.getElementById('pe-guardar');
+    if (guardar) guardar.disabled = !pagosDeEdicion();
+    const falta = document.getElementById('pe-falta');
+    if (falta && e.dividir) {
+      const suma = METODOS_PAGO.reduce((a, m) => a + (Number(e.montos[m.id]) || 0), 0);
+      const dif = e.total - suma;
+      falta.innerHTML = Math.abs(dif) < 0.5 ? '<span style="color:var(--olive);">✓ Los montos suman el total</span>'
+        : dif > 0 ? `Falta ${money(dif)}` : `<span style="color:var(--red);">Sobran ${money(-dif)}</span>`;
+    }
+  }
+
+  function enlazarEditorPago(){
+    const e = pagoEdit;
+    const body = document.getElementById('historial-body');
+    body.querySelectorAll('.pe-metodo').forEach(b => b.addEventListener('click', () => { e.metodo = b.dataset.metodo; dibujarHistorial(); }));
+    body.querySelectorAll('.pe-monto').forEach(inp => inp.addEventListener('input', () => {
+      e.montos[inp.dataset.metodo] = inp.value;
+      actualizarEstadoEditorPago();
+    }));
+    body.querySelectorAll('.pe-resto').forEach(b => b.addEventListener('click', () => {
+      const otros = METODOS_PAGO.filter(m => m.id !== b.dataset.metodo).reduce((a, m) => a + (Number(e.montos[m.id]) || 0), 0);
+      e.montos[b.dataset.metodo] = Math.max(e.total - otros, 0);
+      dibujarHistorial();
+    }));
+    document.getElementById('pe-dividir').addEventListener('click', () => {
+      if (!e.dividir) { e.montos = e.metodo ? { [e.metodo]: e.total } : {}; }
+      else { const con = METODOS_PAGO.filter(m => Number(e.montos[m.id]) > 0); e.metodo = con.length === 1 ? con[0].id : null; }
+      e.dividir = !e.dividir;
+      dibujarHistorial();
+    });
+    document.getElementById('pe-cancelar').addEventListener('click', () => { pagoEdit = null; dibujarHistorial(); });
+    document.getElementById('pe-guardar').addEventListener('click', async () => {
+      const pagos = pagosDeEdicion();
+      if (!pagos) return;
+      await guardarPagoPedido(pagos);
+    });
+    const quitar = document.getElementById('pe-quitar');
+    if (quitar) quitar.addEventListener('click', async () => {
+      if (!confirm('¿Quitar el pago de este pedido? Va a dejar de contar en los ingresos.')) return;
+      await guardarPagoPedido([]);
+    });
+    actualizarEstadoEditorPago();
+  }
+
+  async function guardarPagoPedido(pagos){
+    const e = pagoEdit;
+    const boton = document.getElementById('pe-guardar');
+    if (boton) { boton.disabled = true; boton.textContent = 'Guardando…'; }
+    try {
+      await sbRpc('fijar_pago_pedido', { p_pedido_id: e.pedidoId, p_pagos: pagos });
+    } catch (err) {
+      alert('No se pudo guardar: ' + err.message + '. ¿Ya corriste el SQL de gastos y pagos?');
+      if (boton) { boton.disabled = false; boton.textContent = 'Guardar'; }
+      return;
+    }
+    mostrarAvisoPanel(pagos.length ? '💳 Medio de pago guardado. Ya cuenta en Ingresos.' : 'Pago quitado del pedido.');
+    pagoEdit = null;
+    await cargarHistorial(true);
   }
 
   // ---------- RESERVAS ----------
@@ -4813,6 +5067,440 @@ var qrcode = function() {
     cargarIngresos();
   });
 
+  // ---------- PERÍODOS (Resumen, Lo más vendido y Gastos) ----------
+  const FILTROS_PERIODO = [['hoy', 'Hoy'], ['ayer', 'Ayer'], ['semana', 'Esta semana'], ['mes', 'Este mes'], ['elegir', 'Elegir fechas']];
+
+  // Los pedidos anteriores a esta fecha son de pruebas y no cuentan en "Lo más vendido"
+  const INICIO_REAL = new Date(2026, 9, 22, 6, 0, 0, 0);
+
+  function rangoDePeriodo(f){
+    const base = inicioJornada(new Date());
+    if (f.filtro === 'ayer') return { desde: sumarDias(base, -1), hasta: base };
+    if (f.filtro === 'semana') {
+      const diasDesdeLunes = (base.getDay() + 6) % 7;
+      return { desde: sumarDias(base, -diasDesdeLunes), hasta: sumarDias(base, 1) };
+    }
+    if (f.filtro === 'mes') return { desde: new Date(base.getFullYear(), base.getMonth(), 1, 6, 0, 0, 0), hasta: sumarDias(base, 1) };
+    if (f.filtro === 'elegir' && f.desde) {
+      const [y, m, d] = f.desde.split('-').map(Number);
+      const desde = new Date(y, m - 1, d, 6, 0, 0, 0);
+      let hasta = sumarDias(desde, 1);
+      if (f.hasta) { const [y2, m2, d2] = f.hasta.split('-').map(Number); hasta = new Date(y2, m2 - 1, d2 + 1, 6, 0, 0, 0); }
+      return { desde, hasta };
+    }
+    return { desde: base, hasta: sumarDias(base, 1) };
+  }
+  // Último día (jornada) que incluye un rango que termina a las 6:00 de "hasta"
+  function ultimaFechaDe(hasta){ return fechaLocalISO(new Date(hasta.getTime() - 7 * 3600 * 1000)); }
+
+  function dibujarFiltrosPeriodo(contId, f, alCambiar){
+    const cont = document.getElementById(contId);
+    cont.innerHTML = FILTROS_PERIODO.map(([id, texto]) => `
+      <button type="button" class="icon-btn pf-btn" data-filtro="${id}"
+        style="width:auto; padding:8px 14px; ${f.filtro === id ? 'border-color:var(--copper); color:var(--copper); font-weight:600;' : ''}">${texto}</button>`).join('') + (f.filtro === 'elegir' ? `
+      <input type="date" class="pf-desde" value="${f.desde}"> <span style="color:var(--text-dim);">a</span>
+      <input type="date" class="pf-hasta" value="${f.hasta}">` : '');
+    cont.querySelectorAll('.pf-btn').forEach(b => b.addEventListener('click', () => {
+      f.filtro = b.dataset.filtro;
+      dibujarFiltrosPeriodo(contId, f, alCambiar);
+      alCambiar();
+    }));
+    const d1 = cont.querySelector('.pf-desde'), d2 = cont.querySelector('.pf-hasta');
+    if (d1) d1.addEventListener('change', () => { f.desde = d1.value; alCambiar(); });
+    if (d2) d2.addEventListener('change', () => { f.hasta = d2.value; alCambiar(); });
+  }
+
+  // Barras horizontales simples: filas = [{ label, sub, valor, valorTxt, color }]
+  function barrasHtml(filas){
+    const max = Math.max(...filas.map(f => f.valor), 0);
+    return filas.map(f => `
+      <div style="margin:0 0 11px;">
+        <div style="display:flex; justify-content:space-between; gap:12px; font-size:14px; margin-bottom:4px;">
+          <span>${esc(f.label)}${f.sub ? ` <span style="color:var(--text-dim); font-size:12px;">· ${esc(f.sub)}</span>` : ''}</span>
+          <strong style="white-space:nowrap;">${f.valorTxt}</strong>
+        </div>
+        <div style="height:6px; background:rgba(255,255,255,0.07); border-radius:3px; overflow:hidden;">
+          <div style="height:100%; width:${max > 0 ? Math.max(2, f.valor / max * 100) : 0}%; background:${f.color || 'var(--copper)'}; border-radius:3px;"></div>
+        </div>
+      </div>`).join('');
+  }
+
+  const CAJA_REPORTE = 'border:1px solid var(--line); border-radius:6px; padding:18px; background:var(--panel);';
+  const sumaMontos = filas => filas.reduce((a, x) => a + Number(x.monto), 0);
+
+  // ---------- LO MÁS VENDIDO (se calcula con los pedidos guardados) ----------
+  // Junta los productos de varios pedidos. Las promos que se entregaron de a una pinta
+  // ("Pinta IPA (de Promo 4 pintas)") vuelven a contarse como la promo.
+  function agruparVendidos(pedidos){
+    const precioMenu = {}, catMenu = {};
+    menuCache.forEach(m => { precioMenu[m.nombre] = Number(m.precio) || 0; catMenu[m.nombre] = m.categoria; });
+    const prod = {};
+    let unidadesTotal = 0, plataTotal = 0;
+    pedidos.forEach(p => (p.items || []).forEach(it => {
+      let nombre = String(it.nombre || '').trim();
+      if (!nombre) return;
+      const cant = Number(it.cantidad) || 0;
+      const precio = Number(it.precio) || 0;
+      let unidades = cant, plata = cant * precio;
+      const pieza = nombre.match(/^Pinta .+ \(de (.+)\)$/);
+      const base = pieza ? pieza[1] : (it.promo_base || null);
+      if (base) {
+        nombre = base;
+        const unit = precioMenu[base] || 0;
+        unidades = precio > 0 ? (unit > 0 ? Math.max(1, Math.round(plata / unit)) : 1) : 0;
+        plata = cant * precio;
+      }
+      const x = prod[nombre] || (prod[nombre] = { nombre, unidades: 0, plata: 0, categoria: catMenu[nombre] || 'Otros' });
+      x.unidades += unidades;
+      x.plata += plata;
+      unidadesTotal += unidades;
+      plataTotal += plata;
+    }));
+    const productos = Object.values(prod);
+    const cats = {};
+    productos.forEach(x => {
+      const c = cats[x.categoria] || (cats[x.categoria] = { nombre: x.categoria, unidades: 0, plata: 0 });
+      c.unidades += x.unidades; c.plata += x.plata;
+    });
+    return { productos, categorias: Object.values(cats), unidades: unidadesTotal, plata: plataTotal, pedidos: pedidos.length };
+  }
+
+  let vendidoF = { filtro: 'semana', desde: '', hasta: '' };
+  let vendidoOrden = 'unidades';   // unidades | plata
+  let vendidoTodos = false;
+  let vendidoDatos = null;
+
+  function abrirVendido(){
+    dibujarFiltrosPeriodo('vendido-filtros', vendidoF, cargarVendido);
+    cargarVendido();
+  }
+
+  async function cargarVendido(){
+    const cont = document.getElementById('vendido-contenido');
+    const conPruebas = document.getElementById('vendido-pruebas').checked;
+    if (!menuCache.length) { try { await cargarMenu(); } catch (e) {} }
+    const { desde, hasta } = rangoDePeriodo(vendidoF);
+    const desdeReal = (!conPruebas && desde < INICIO_REAL) ? INICIO_REAL : desde;
+    let pedidos = [];
+    if (desdeReal < hasta) {
+      try {
+        pedidos = await sbSelect('pedidos', `select=items,creado_en&creado_en=gte.${desdeReal.toISOString()}&creado_en=lt.${hasta.toISOString()}&limit=5000`);
+      } catch (err) {
+        cont.innerHTML = `<p class="empty">Error al cargar (${esc(err.message)}).</p>`; return;
+      }
+    }
+    vendidoDatos = agruparVendidos(pedidos || []);
+    vendidoDatos.recortado = !conPruebas && desde < INICIO_REAL;
+    dibujarVendido();
+  }
+
+  function dibujarVendido(){
+    const cont = document.getElementById('vendido-contenido');
+    const d = vendidoDatos;
+    if (!d) return;
+    if (!d.productos.length) {
+      cont.innerHTML = `<p class="empty">No hay pedidos en este período.${d.recortado ? ' (Se cuentan desde el 22/10; los pedidos anteriores eran de prueba.)' : ''}</p>`;
+      return;
+    }
+    const porPlata = vendidoOrden === 'plata';
+    const clave = porPlata ? 'plata' : 'unidades';
+    const productos = d.productos.slice().sort((a, b) => b[clave] - a[clave] || b.unidades - a.unidades);
+    const visibles = vendidoTodos ? productos : productos.slice(0, 15);
+    const categorias = d.categorias.slice().sort((a, b) => b[clave] - a[clave]);
+    const txt = x => porPlata ? money(x.plata) : `${x.unidades} u.`;
+    const sub = x => porPlata ? `${x.unidades} u.` : money(x.plata);
+    const btn = (id, t) => `<button type="button" class="icon-btn vendido-orden" data-orden="${id}" style="width:auto; padding:8px 14px; ${vendidoOrden === id ? 'border-color:var(--copper); color:var(--copper); font-weight:600;' : ''}">${t}</button>`;
+
+    cont.innerHTML = `
+      ${d.recortado ? `<p style="color:var(--text-dim); font-size:0.85rem; margin:0 0 16px;">Se cuentan los pedidos desde el 22/10 (los anteriores eran de prueba).</p>` : ''}
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:14px; margin-bottom:22px;">
+        <div style="${CAJA_REPORTE}"><div style="color:var(--text-dim); font-size:12px;">Unidades vendidas</div><div style="font-family:'Fraunces',serif; font-style:italic; color:var(--copper); font-size:1.7rem;">${d.unidades.toLocaleString('es-AR')}</div></div>
+        <div style="${CAJA_REPORTE}"><div style="color:var(--text-dim); font-size:12px;">Vendido en productos</div><div style="font-family:'Fraunces',serif; font-style:italic; color:var(--copper); font-size:1.7rem;">${money(d.plata)}</div></div>
+        <div style="${CAJA_REPORTE}"><div style="color:var(--text-dim); font-size:12px;">Pedidos</div><div style="font-family:'Fraunces',serif; font-style:italic; color:var(--copper); font-size:1.7rem;">${d.pedidos.toLocaleString('es-AR')}</div></div>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center; margin-bottom:16px; flex-wrap:wrap;">
+        <span style="color:var(--text-dim); font-size:0.9rem;">Ordenar por</span>${btn('unidades', 'Unidades')}${btn('plata', 'Plata')}
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:18px; align-items:start;">
+        <div style="${CAJA_REPORTE}">
+          <h3 style="margin:0 0 14px; font-size:1.05rem;">Productos</h3>
+          ${barrasHtml(visibles.map(x => ({ label: x.nombre, sub: sub(x), valor: x[clave], valorTxt: txt(x) })))}
+          ${productos.length > 15 ? `<button type="button" class="icon-btn" id="vendido-ver-todos" style="width:auto; padding:8px 14px;">${vendidoTodos ? 'Ver solo los 15 primeros' : `Ver todos (${productos.length})`}</button>` : ''}
+        </div>
+        <div style="${CAJA_REPORTE}">
+          <h3 style="margin:0 0 14px; font-size:1.05rem;">Categorías</h3>
+          ${barrasHtml(categorias.map(x => ({ label: x.nombre, sub: sub(x), valor: x[clave], valorTxt: txt(x) })))}
+        </div>
+      </div>`;
+
+    cont.querySelectorAll('.vendido-orden').forEach(b => b.addEventListener('click', () => { vendidoOrden = b.dataset.orden; dibujarVendido(); }));
+    const verTodos = document.getElementById('vendido-ver-todos');
+    if (verTodos) verTodos.addEventListener('click', () => { vendidoTodos = !vendidoTodos; dibujarVendido(); });
+  }
+  document.getElementById('vendido-pruebas').addEventListener('change', cargarVendido);
+
+  // ---------- GASTOS ----------
+  const CATEGORIAS_GASTO = [
+    { id: 'mercaderia', label: 'Mercadería' },
+    { id: 'sueldos',    label: 'Sueldos' },
+    { id: 'alquiler',   label: 'Alquiler' },
+    { id: 'servicios',  label: 'Servicios (luz, gas, internet)' },
+    { id: 'otros',      label: 'Otros' },
+  ];
+  const METODOS_GASTO = METODOS_PAGO.concat([{ id: 'transferencia', label: 'Transferencia', color: '#8A9BA8' }]);
+  const etiquetaCategoriaGasto = id => (CATEGORIAS_GASTO.find(c => c.id === id) || { label: id }).label;
+  const etiquetaMetodoGasto = id => (METODOS_GASTO.find(m => m.id === id) || { label: id }).label;
+
+  let gastosF = { filtro: 'mes', desde: '', hasta: '' };
+
+  function abrirGastos(){
+    document.getElementById('gasto-categoria').innerHTML = CATEGORIAS_GASTO.map(c => `<option value="${c.id}">${c.label}</option>`).join('');
+    document.getElementById('gasto-metodo').innerHTML = METODOS_GASTO.map(m => `<option value="${m.id}">${m.label}</option>`).join('');
+    const f = document.getElementById('gasto-fecha');
+    if (!f.value) f.value = fechaLocalISO(inicioJornada(new Date()));
+    dibujarFiltrosPeriodo('gastos-filtros', gastosF, cargarGastos);
+    cargarGastos();
+  }
+
+  async function cargarGastos(){
+    const resumen = document.getElementById('gastos-resumen');
+    const body = document.getElementById('gastos-body');
+    const activo = document.activeElement;
+    if (activo && body.contains(activo)) return;
+
+    const { desde, hasta } = rangoDePeriodo(gastosF);
+    let filas;
+    try {
+      filas = await sbSelect('gastos', `select=*&fecha=gte.${fechaLocalISO(desde)}&fecha=lte.${ultimaFechaDe(hasta)}&order=fecha.desc,creado_en.desc&limit=2000`);
+    } catch (err) {
+      resumen.innerHTML = `<p class="empty">Error al cargar (${esc(err.message)}). ¿Ya corriste el SQL de gastos?</p>`;
+      body.innerHTML = '';
+      return;
+    }
+    filas = filas || [];
+    const total = sumaMontos(filas);
+    const porCat = {};
+    filas.forEach(g => { porCat[g.categoria] = (porCat[g.categoria] || 0) + Number(g.monto); });
+    const cats = Object.entries(porCat).sort((a, b) => b[1] - a[1]);
+
+    resumen.innerHTML = `
+      <div style="display:flex; gap:28px; flex-wrap:wrap; align-items:flex-start;">
+        <div style="${CAJA_REPORTE} min-width:200px;">
+          <div style="color:var(--text-dim); font-size:12px;">Gastos del período</div>
+          <div style="font-family:'Fraunces',serif; font-style:italic; color:var(--copper); font-size:1.9rem;">${money(total)}</div>
+          <div style="color:var(--text-dim); font-size:12px;">${filas.length} gasto${filas.length === 1 ? '' : 's'}</div>
+        </div>
+        <div style="flex:1; min-width:280px; max-width:520px;">
+          ${cats.length ? barrasHtml(cats.map(([id, v]) => ({ label: etiquetaCategoriaGasto(id), sub: total > 0 ? Math.round(v / total * 100) + '%' : '', valor: v, valorTxt: money(v) }))) : '<p class="empty">Todavía no hay gastos en este período.</p>'}
+        </div>
+      </div>`;
+
+    if (!filas.length) { body.innerHTML = `<tr><td colspan="6" class="empty">No hay gastos en este período.</td></tr>`; return; }
+    const opcionesCat = id => {
+      const lista = CATEGORIAS_GASTO.some(c => c.id === id) ? CATEGORIAS_GASTO : CATEGORIAS_GASTO.concat([{ id, label: id }]);
+      return lista.map(c => `<option value="${esc(c.id)}" ${c.id === id ? 'selected' : ''}>${esc(c.label)}</option>`).join('');
+    };
+    body.innerHTML = filas.map(g => {
+      const [y, m, d] = String(g.fecha).split('-');
+      return `
+        <tr>
+          <td>${d}/${m}/${y}</td>
+          <td><select class="gasto-edit" data-id="${g.id}" data-campo="categoria" style="padding:5px 8px;">${opcionesCat(g.categoria)}</select></td>
+          <td><select class="gasto-edit" data-id="${g.id}" data-campo="metodo" style="padding:5px 8px;">
+            ${METODOS_GASTO.map(mt => `<option value="${mt.id}" ${mt.id === g.metodo ? 'selected' : ''}>${mt.label}</option>`).join('')}
+          </select></td>
+          <td><input type="number" min="0" class="gasto-edit" data-id="${g.id}" data-campo="monto" value="${Number(g.monto)}" style="width:110px; padding:5px 8px;"></td>
+          <td style="color:var(--text-dim);">${esc(g.nota || '')}</td>
+          <td><button class="icon-btn gasto-borrar" data-id="${g.id}" title="Borrar este gasto" style="width:28px; height:28px; padding:0;">✕</button></td>
+        </tr>`;
+    }).join('');
+
+    body.querySelectorAll('.gasto-edit').forEach(el => el.addEventListener('change', async () => {
+      const campo = el.dataset.campo;
+      let valor = el.value;
+      if (campo === 'monto') {
+        valor = Number(valor);
+        if (!(valor > 0)) { alert('El monto tiene que ser mayor a cero.'); el.blur(); cargarGastos(); return; }
+      }
+      try { await sbUpdate('gastos', el.dataset.id, { [campo]: valor }); }
+      catch (err) { alert('No se pudo cambiar: ' + err.message); }
+      el.blur();
+      cargarGastos();
+    }));
+    body.querySelectorAll('.gasto-borrar').forEach(btn => btn.addEventListener('click', async () => {
+      if (!confirm('¿Borrar este gasto?')) return;
+      try { await sbDelete('gastos', btn.dataset.id); }
+      catch (err) { alert('No se pudo borrar: ' + err.message); return; }
+      cargarGastos();
+    }));
+  }
+
+  document.getElementById('gasto-guardar').addEventListener('click', async () => {
+    const monto = Number(document.getElementById('gasto-monto').value);
+    const categoria = document.getElementById('gasto-categoria').value;
+    const metodo = document.getElementById('gasto-metodo').value;
+    const fecha = document.getElementById('gasto-fecha').value;
+    const nota = document.getElementById('gasto-nota').value.trim();
+    if (!(monto > 0)) { alert('Cargá un monto mayor a cero.'); return; }
+    if (!fecha) { alert('Elegí la fecha del gasto.'); return; }
+    try {
+      await sbInsert('gastos', { monto, categoria, metodo, fecha, nota: nota || null, cargado_por: emailCuenta });
+    } catch (err) { alert('No se pudo guardar el gasto: ' + err.message + '. ¿Ya corriste el SQL de gastos?'); return; }
+    document.getElementById('gasto-monto').value = '';
+    document.getElementById('gasto-nota').value = '';
+    mostrarAvisoPanel(`🧾 Gasto cargado: ${money(monto)} (${etiquetaCategoriaGasto(categoria)}).`);
+    cargarGastos();
+  });
+
+  // ---------- RESUMEN ----------
+  let resumenPeriodo = 'hoy';   // hoy | semana | mes
+
+  function periodosResumen(){
+    const ahora = new Date();
+    const base = inicioJornada(ahora);
+    let desde, desdePrev, etiquetaPrev;
+    if (resumenPeriodo === 'semana') {
+      desde = sumarDias(base, -((base.getDay() + 6) % 7));
+      desdePrev = sumarDias(desde, -7);
+      etiquetaPrev = 'la semana pasada';
+    } else if (resumenPeriodo === 'mes') {
+      desde = new Date(base.getFullYear(), base.getMonth(), 1, 6, 0, 0, 0);
+      desdePrev = new Date(base.getFullYear(), base.getMonth() - 1, 1, 6, 0, 0, 0);
+      etiquetaPrev = 'el mes pasado';
+    } else {
+      desde = base;
+      desdePrev = sumarDias(base, -1);
+      etiquetaPrev = 'ayer a esta hora';
+    }
+    // Se compara contra el mismo tramo del período anterior (si hoy van 3 días de la semana, contra los primeros 3 días de la anterior)
+    const hastaPrev = new Date(Math.min(desdePrev.getTime() + (ahora - desde), desde.getTime()));
+    const nDias = Math.round((base - desde) / 86400000) + 1;
+    let finPrev = sumarDias(desdePrev, nDias - 1);
+    const ayerDelPeriodo = sumarDias(desde, -1);
+    if (finPrev > ayerDelPeriodo) finPrev = ayerDelPeriodo;
+    return {
+      ahora, desde, desdePrev, hastaPrev, etiquetaPrev,
+      fDesde: fechaLocalISO(desde), fHasta: fechaLocalISO(base),
+      fDesdePrev: fechaLocalISO(desdePrev), fHastaPrev: fechaLocalISO(finPrev),
+    };
+  }
+
+  function dibujarFiltrosResumen(){
+    const cont = document.getElementById('resumen-filtros');
+    cont.innerHTML = [['hoy', 'Hoy'], ['semana', 'Esta semana'], ['mes', 'Este mes']].map(([id, t]) => `
+      <button type="button" class="icon-btn resumen-per" data-per="${id}"
+        style="width:auto; padding:8px 14px; ${resumenPeriodo === id ? 'border-color:var(--copper); color:var(--copper); font-weight:600;' : ''}">${t}</button>`).join('');
+    cont.querySelectorAll('.resumen-per').forEach(b => b.addEventListener('click', () => {
+      resumenPeriodo = b.dataset.per;
+      dibujarFiltrosResumen();
+      document.getElementById('resumen-contenido').innerHTML = '<p class="empty">Cargando…</p>';
+      cargarResumen();
+    }));
+  }
+
+  function abrirResumen(){
+    dibujarFiltrosResumen();
+    cargarResumen();
+  }
+
+  function deltaHtml(cur, prev, etiqueta, colorear){
+    if (!(prev > 0)) return `<span style="color:var(--text-dim); font-size:12px;">sin datos de ${etiqueta}</span>`;
+    const pct = Math.round((cur - prev) / prev * 100);
+    const color = !colorear ? 'var(--text-dim)' : (pct >= 0 ? 'var(--olive)' : 'var(--red)');
+    return `<span style="color:${color}; font-size:12px; font-weight:600;">${pct >= 0 ? '↑' : '↓'} ${Math.abs(pct)}%</span> <span style="color:var(--text-dim); font-size:12px;">vs. ${etiqueta}</span>`;
+  }
+
+  async function cargarResumen(){
+    const cont = document.getElementById('resumen-contenido');
+    const P = periodosResumen();
+    const finConsulta = new Date(P.ahora.getTime() + 60000).toISOString();
+    let cobros, gastos;
+    try {
+      [cobros, gastos] = await Promise.all([
+        sbSelect('cobros', `select=grupo_id,tipo,metodo,monto,creado_en&creado_en=gte.${P.desdePrev.toISOString()}&creado_en=lt.${finConsulta}&limit=5000`),
+        sbSelect('gastos', `select=categoria,monto,fecha&fecha=gte.${P.fDesdePrev}&fecha=lte.${P.fHasta}&limit=5000`),
+      ]);
+    } catch (err) {
+      cont.innerHTML = `<p class="empty">Error al cargar (${esc(err.message)}). ¿Ya corriste el SQL de ingresos y el de gastos?</p>`;
+      return;
+    }
+    cobros = cobros || []; gastos = gastos || [];
+    let pedidos = [];
+    const desdeVentas = P.desde < INICIO_REAL ? INICIO_REAL : P.desde;
+    if (desdeVentas < P.ahora) {
+      try { pedidos = await sbSelect('pedidos', `select=items&creado_en=gte.${desdeVentas.toISOString()}&creado_en=lt.${finConsulta}&limit=5000`); } catch (e) { pedidos = []; }
+    }
+    if (!menuCache.length) { try { await cargarMenu(); } catch (e) {} }
+
+    const curC = cobros.filter(c => new Date(c.creado_en) >= P.desde);
+    const prevC = cobros.filter(c => { const t = new Date(c.creado_en); return t >= P.desdePrev && t < P.hastaPrev; });
+    const curG = gastos.filter(g => g.fecha >= P.fDesde);
+    const prevG = gastos.filter(g => g.fecha <= P.fHastaPrev);
+    const ing = sumaMontos(curC), ingP = sumaMontos(prevC);
+    const gas = sumaMontos(curG), gasP = sumaMontos(prevG);
+    const neto = ing - gas, netoP = ingP - gasP;
+    const mesasDe = filas => new Set(filas.filter(c => c.tipo === 'mesa').map(c => c.grupo_id)).size;
+    const mesas = mesasDe(curC), mesasP = mesasDe(prevC);
+    const promedio = mesas ? sumaMontos(curC.filter(c => c.tipo === 'mesa')) / mesas : 0;
+    const promedioP = mesasP ? sumaMontos(prevC.filter(c => c.tipo === 'mesa')) / mesasP : 0;
+
+    const kpi = (titulo, valor, delta, color) => `
+      <div style="${CAJA_REPORTE}">
+        <div style="color:var(--text-dim); font-size:12px;">${titulo}</div>
+        <div style="font-family:'Fraunces',serif; font-style:italic; color:${color || 'var(--copper)'}; font-size:1.7rem; margin:2px 0 4px;">${valor}</div>
+        <div>${delta}</div>
+      </div>`;
+
+    const porMetodo = {};
+    METODOS_PAGO.forEach(m => { porMetodo[m.id] = 0; });
+    curC.forEach(c => { porMetodo[c.metodo] = (porMetodo[c.metodo] || 0) + Number(c.monto); });
+    const bloqueMedios = ing > 0 ? `
+      <div style="display:flex; height:14px; border-radius:7px; overflow:hidden; background:rgba(255,255,255,0.07); margin:2px 0 16px;">
+        ${METODOS_PAGO.map(m => porMetodo[m.id] > 0 ? `<div title="${m.label}" style="width:${porMetodo[m.id] / ing * 100}%; background:${m.color};"></div>` : '').join('')}
+      </div>
+      ${METODOS_PAGO.map(m => `
+        <div style="display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid var(--line); ${porMetodo[m.id] === 0 ? 'opacity:0.45;' : ''}">
+          <span style="width:10px; height:10px; border-radius:50%; background:${m.color}; flex-shrink:0;"></span>
+          <span style="flex:1;">${m.label}</span>
+          <strong>${money(porMetodo[m.id])}</strong>
+          <span style="width:40px; text-align:right; color:var(--text-dim);">${Math.round(porMetodo[m.id] / ing * 100)}%</span>
+        </div>`).join('')}` : '<p class="empty">Todavía no hay cobros en este período.</p>';
+
+    const vend = agruparVendidos(pedidos || []);
+    const top = vend.productos.slice().sort((a, b) => b.unidades - a.unidades || b.plata - a.plata).slice(0, 5);
+    const bloqueTop = top.length
+      ? barrasHtml(top.map(x => ({ label: x.nombre, sub: money(x.plata), valor: x.unidades, valorTxt: x.unidades + ' u.' })))
+        + `<button type="button" class="icon-btn" id="resumen-ver-vendido" style="width:auto; padding:8px 14px;">Ver todo →</button>`
+      : '<p class="empty">Todavía no hay pedidos en este período.</p>';
+
+    const porCat = {};
+    curG.forEach(g => { porCat[g.categoria] = (porCat[g.categoria] || 0) + Number(g.monto); });
+    const cats = Object.entries(porCat).sort((a, b) => b[1] - a[1]);
+    const bloqueGastos = cats.length
+      ? barrasHtml(cats.map(([id, v]) => ({ label: etiquetaCategoriaGasto(id), sub: gas > 0 ? Math.round(v / gas * 100) + '%' : '', valor: v, valorTxt: money(v) })))
+      : '<p class="empty">Todavía no cargaste gastos en este período.</p>';
+
+    cont.innerHTML = `
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:14px; margin-bottom:22px;">
+        ${kpi('Ingresos', money(ing), deltaHtml(ing, ingP, P.etiquetaPrev, true))}
+        ${kpi('Gastos', money(gas), deltaHtml(gas, gasP, P.etiquetaPrev, false))}
+        ${kpi('Ganancia neta', (neto < 0 ? '−' : '') + money(Math.abs(neto)), deltaHtml(neto, netoP, P.etiquetaPrev, true), neto < 0 ? 'var(--red)' : 'var(--olive)')}
+        ${kpi('Mesas cobradas', mesas, deltaHtml(mesas, mesasP, P.etiquetaPrev, true))}
+        ${kpi('Promedio por mesa', mesas ? money(promedio) : '—', deltaHtml(promedio, promedioP, P.etiquetaPrev, true))}
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:18px; align-items:start;">
+        <div style="${CAJA_REPORTE}"><h3 style="margin:0 0 14px; font-size:1.05rem;">Ingresos por medio de pago</h3>${bloqueMedios}</div>
+        <div style="${CAJA_REPORTE}"><h3 style="margin:0 0 14px; font-size:1.05rem;">Lo más vendido</h3>${bloqueTop}</div>
+        <div style="${CAJA_REPORTE}"><h3 style="margin:0 0 14px; font-size:1.05rem;">Gastos por categoría</h3>${bloqueGastos}</div>
+      </div>`;
+
+    const ver = document.getElementById('resumen-ver-vendido');
+    if (ver) ver.addEventListener('click', () => {
+      vendidoF = { filtro: resumenPeriodo === 'hoy' ? 'hoy' : resumenPeriodo, desde: '', hasta: '' };
+      document.querySelector('nav.tabs button[data-tab="vendido"]').click();
+    });
+  }
+
   // ---------- PEDIR (comanda de cocina sin precios) ----------
   let carritoPedir = {};      // { menuItemId: cantidad }
   let mesaPedir = '';
@@ -5335,9 +6023,11 @@ var qrcode = function() {
   // ---------- ACTUALIZACIÓN AUTOMÁTICA ----------
   // (en vez de una conexión de "tiempo real" por WebSocket, que depende de una
   // librería externa, refrescamos reservas y pedidos cada 8 segundos)
+  let vueltasPolling = 0;
   function suscribirRealtime(){
     if (pollingId) clearInterval(pollingId);
     pollingId = setInterval(() => {
+      vueltasPolling++;
       if (rolActual === 'dueno' || rolActual === 'recepcion') {
         cargarReservas();
         cargarPedidos();
@@ -5349,6 +6039,14 @@ var qrcode = function() {
         cargarTiempos();
       }
       if (rolActual === 'dueno' && document.getElementById('panel-ingresos').classList.contains('active')) cargarIngresos();
+      if (rolActual === 'dueno') {
+        // El historial se actualiza solo (si no se está editando un pago); los reportes, cada ~30 s
+        if (document.getElementById('panel-historial').classList.contains('active')) { cargarHistorial(); cargarHistorialSemana(); }
+        if (vueltasPolling % 4 === 0) {
+          if (document.getElementById('panel-resumen').classList.contains('active')) cargarResumen();
+          if (document.getElementById('panel-vendido').classList.contains('active')) cargarVendido();
+        }
+      }
       cargarCocteleria();
       cargarCocina();
       cargarAtencion();
