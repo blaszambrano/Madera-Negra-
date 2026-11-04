@@ -166,6 +166,20 @@
     font-size:0.85rem; width:100%;
   }
 
+  .btn-cuenta{
+    background:transparent; color:var(--copper); border:1px solid var(--copper);
+    border-radius:20px; padding:8px 14px; font-size:0.85rem; font-weight:600;
+    font-family:'Archivo', sans-serif; cursor:pointer; white-space:nowrap;
+  }
+  .cuenta-linea{ display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:12px 0; border-bottom:1px solid var(--line); }
+  .cuenta-linea .c-nombre{ font-size:0.98rem; }
+  .cuenta-linea .c-estado{ font-size:0.78rem; margin-top:3px; color:var(--text-dim); }
+  .cuenta-linea .c-estado.listo{ color:#9CAE7C; }
+  .cuenta-linea .c-monto{ white-space:nowrap; font-size:0.95rem; }
+  .cuenta-total{ display:flex; justify-content:space-between; align-items:baseline; padding:16px 0 4px; font-family:'Fraunces',serif; font-size:1.3rem; }
+  .cuenta-total .monto{ color:var(--copper); font-style:italic; }
+  .cuenta-sub{ color:var(--copper); font-size:0.95rem; font-weight:600; margin:22px 0 2px; }
+
   .modal-fondo{
     position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:50;
     display:none; align-items:flex-end; justify-content:center;
@@ -198,6 +212,10 @@
     <span class="mesa-badge" id="mesa-badge">—</span>
   </header>
 
+  <div id="cuenta-fila" style="display:none; padding:14px 0 0;">
+    <button type="button" class="btn-cuenta" id="btn-cuenta" style="width:100%; padding:12px 16px; font-size:0.92rem;">🧾 Mi cuenta · ver lo que pedí</button>
+  </div>
+
   <div id="contenido">
     <div class="estado-msg"><h2>Cargando la carta…</h2></div>
   </div>
@@ -217,6 +235,10 @@
       <button class="btn-enviar" id="btn-enviar">Enviar pedido</button>
     </div>
   </div>
+</div>
+
+<div class="modal-fondo" id="modal-cuenta">
+  <div class="modal-caja" id="modal-cuenta-caja"></div>
 </div>
 
 <div class="modal-fondo" id="modal-promo">
@@ -674,6 +696,7 @@
     }
 
     mesaBadge.textContent = 'Mesa ' + mesa;
+    document.getElementById('cuenta-fila').style.display = '';
 
     try {
       dataCarta = (await sbSelect('menu_items', 'select=*&order=orden.asc')) || [];
@@ -699,6 +722,127 @@
       contenido.innerHTML = `<div class="estado-msg"><h2>No pudimos cargar la carta</h2><p>${err.message}</p></div>`;
     }
   }
+
+  // ---- Mi cuenta: lo que la mesa lleva pedido hasta ahora ----
+  const modalCuenta = document.getElementById('modal-cuenta');
+  const cajaCuenta = document.getElementById('modal-cuenta-caja');
+  const btnCuenta = document.getElementById('btn-cuenta');
+  let cuentaDatos = null;          // { items, total } o null si todavía no cargó
+  let cuentaError = false;
+  let cuentaTimer = null;
+
+  function escCuenta(t){
+    return String(t ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  }
+
+  // Junta las líneas iguales; las promos que salieron de a una pinta vuelven a verse como la promo.
+  function agruparCuenta(items){
+    const precioCarta = {};
+    dataCarta.forEach(d => { precioCarta[d.nombre] = Number(d.precio) || 0; });
+    const grupos = {};
+    const orden = [];
+    (items || []).forEach(it => {
+      let nombre = String(it.nombre || '').trim();
+      if (!nombre) return;
+      const cant = Number(it.cantidad) || 0;
+      const precio = Number(it.precio) || 0;
+      let cantidad = cant, plata = cant * precio;
+      const pieza = nombre.match(/^Pinta .+ \(de (.+)\)$/);
+      const base = pieza ? pieza[1] : (it.promo_base || null);
+      if (base) {
+        nombre = base;
+        const unit = precioCarta[base] || 0;
+        cantidad = precio > 0 ? (unit > 0 ? Math.max(1, Math.round(plata / unit)) : 1) : 0;
+      }
+      if (!grupos[nombre]) { grupos[nombre] = { nombre, cantidad: 0, plata: 0, estados: new Set() }; orden.push(nombre); }
+      grupos[nombre].cantidad += cantidad;
+      grupos[nombre].plata += plata;
+      grupos[nombre].estados.add(it.estado || 'pendiente');
+    });
+    return orden.map(n => grupos[n]);
+  }
+
+  function estadoCuentaTexto(estados){
+    if (estados.has('pendiente')) return { t: 'En preparación', cls: '' };
+    if (estados.has('listo')) return { t: 'Listo, ya te lo llevan', cls: 'listo' };
+    if (estados.has('espera')) return { t: 'Para después', cls: '' };
+    return { t: '✓ Entregado', cls: 'listo' };
+  }
+
+  function dibujarCuenta(){
+    let pedidoHtml;
+    if (cuentaError && !cuentaDatos) {
+      pedidoHtml = '<p style="color:var(--text-dim);">No pudimos cargar tu cuenta. Probá de nuevo en un momento.</p>';
+    } else if (!cuentaDatos) {
+      pedidoHtml = '<p style="color:var(--text-dim);">Cargando…</p>';
+    } else {
+      const lineas = agruparCuenta(cuentaDatos.items);
+      pedidoHtml = lineas.length ? lineas.map(l => {
+        const e = estadoCuentaTexto(l.estados);
+        return `
+        <div class="cuenta-linea">
+          <div>
+            <div class="c-nombre">${l.cantidad > 0 ? l.cantidad + 'x ' : ''}${escCuenta(l.nombre)}</div>
+            <div class="c-estado ${e.cls}">${e.t}</div>
+          </div>
+          <div class="c-monto">${l.plata > 0 ? money(l.plata) : 'incluido'}</div>
+        </div>`;
+      }).join('') + `
+        <div class="cuenta-total"><span>Total hasta ahora</span><span class="monto">${money(cuentaDatos.total)}</span></div>`
+        : '<p style="color:var(--text-dim);">Todavía no pediste nada en esta mesa.</p>';
+    }
+
+    // Lo que se está armando y todavía no se mandó
+    const sinEnviar = Object.values(carrito);
+    let sinEnviarHtml = '';
+    if (sinEnviar.length) {
+      const sub = sinEnviar.reduce((a, it) => a + it.cantidad * (it.precio + (it.extraPrecio || 0)), 0);
+      sinEnviarHtml = `
+        <div class="cuenta-sub">Todavía sin enviar</div>
+        ${sinEnviar.map(it => `
+          <div class="cuenta-linea">
+            <div class="c-nombre">${it.cantidad}x ${escCuenta(it.nombre)}${it.extraNombre ? ' + ' + escCuenta(it.extraNombre) : ''}</div>
+            <div class="c-monto">${money(it.cantidad * (it.precio + (it.extraPrecio || 0)))}</div>
+          </div>`).join('')}
+        <div style="display:flex; justify-content:space-between; padding-top:10px; color:var(--text-dim); font-size:0.9rem;">
+          <span>Subtotal sin enviar</span><span>${money(sub)}</span>
+        </div>`;
+    }
+
+    cajaCuenta.innerHTML = `
+      <h3>Mi cuenta · Mesa ${mesa}</h3>
+      <div class="sub">Lo que pediste hasta ahora. La cuenta final te la trae el mozo.</div>
+      ${pedidoHtml}
+      ${sinEnviarHtml}
+      <div class="modal-acciones"><button type="button" class="btn-cancelar" id="cuenta-cerrar">Cerrar</button></div>`;
+    document.getElementById('cuenta-cerrar').addEventListener('click', cerrarCuenta);
+  }
+
+  async function cargarCuenta(){
+    try {
+      const r = await sbRpc('ver_cuenta_mesa', { p_mesa: mesa });
+      cuentaDatos = r && Array.isArray(r.items) ? r : { items: [], total: 0 };
+      cuentaError = false;
+    } catch (err) {
+      console.error('No se pudo cargar la cuenta', err);
+      cuentaError = true;
+    }
+    if (modalCuenta.classList.contains('abierto')) dibujarCuenta();
+  }
+
+  function abrirCuenta(){
+    dibujarCuenta();
+    modalCuenta.classList.add('abierto');
+    cargarCuenta();
+    clearInterval(cuentaTimer);
+    cuentaTimer = setInterval(cargarCuenta, 15000);   // se actualiza sola mientras está abierta
+  }
+  function cerrarCuenta(){
+    modalCuenta.classList.remove('abierto');
+    clearInterval(cuentaTimer);
+  }
+  btnCuenta.addEventListener('click', abrirCuenta);
+  modalCuenta.addEventListener('click', e => { if (e.target === modalCuenta) cerrarCuenta(); });
 
   btnEnviar.addEventListener('click', async () => {
     if (!Object.keys(carrito).length) return;
@@ -750,13 +894,21 @@
       }
 
       const hayEspera = items.some(it => it.espera);
-      document.querySelector('.wrap').innerHTML = `
+      Object.keys(carrito).forEach(k => delete carrito[k]);
+      contenido.innerHTML = `
         <div class="confirmacion">
           <h2>¡Pedido enviado!</h2>
           <p>Ya le llegó a la barra para la <span class="mesa-grande">mesa ${mesa}</span>. En un rato te lo acercamos.</p>
           ${hayEspera ? '<p style="margin-top:12px;">Lo que marcaste como “Después” lo guardamos: avisale al mozo cuando lo quieras y lo preparamos.</p>' : ''}
+          <div style="display:flex; flex-direction:column; gap:10px; max-width:320px; margin:28px auto 0;">
+            <button type="button" class="btn-enviar" id="conf-cuenta">🧾 Ver mi cuenta</button>
+            <button type="button" class="btn-elegir" id="conf-mas">Pedir algo más</button>
+          </div>
         </div>`;
       barFija.style.display = 'none';
+      window.scrollTo(0, 0);
+      document.getElementById('conf-cuenta').addEventListener('click', abrirCuenta);
+      document.getElementById('conf-mas').addEventListener('click', () => { renderCarta(); actualizarBarra(); });
     } catch (err) {
       console.error('No se pudo enviar el pedido', err);
       btnEnviar.disabled = false;

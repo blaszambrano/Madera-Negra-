@@ -164,6 +164,7 @@
       <button data-tab="cocteleria">Coctelería</button>
       <button data-tab="cocina">Cocina</button>
       <button data-tab="atencion">Atención</button>
+      <button data-tab="vermesas">Mesas y pedidos</button>
       <button data-tab="tiempos">Tiempos</button>
     </nav>
 
@@ -312,6 +313,14 @@
         <div><h2>Cocina</h2><p>Pedidos de comida pendientes de preparar.</p></div>
       </div>
       <div id="cocina-lista" style="display:flex; flex-direction:column; gap:12px;"><p class="empty">Cargando…</p></div>
+    </section>
+
+    <section class="panel" id="panel-vermesas">
+      <div class="section-head">
+        <div><h2>Mesas y pedidos</h2><p>Qué mesas están abiertas y todo lo que se pidió en cada una. Solo para ver.</p></div>
+      </div>
+      <div id="vermesas-filtros" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:16px;"></div>
+      <div id="vermesas-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:12px;"><p class="empty">Cargando…</p></div>
     </section>
 
     <section class="panel" id="panel-atencion">
@@ -2991,7 +3000,7 @@ var qrcode = function() {
     recepcion: ['reservas','calendario','pedidos','precios','clientes','mesas','pedir','cocteleria','cocina','atencion','tiempos'],
     cocteleria: ['cocteleria'],
     cocina: ['cocina'],
-    atencion: ['atencion'],
+    atencion: ['atencion','vermesas'],
   };
 
   // El dueño entra a una vista de reportes; con "Ver panel completo" ve todo lo operativo.
@@ -3101,6 +3110,7 @@ var qrcode = function() {
     if (tab === 'cocteleria') cargarCocteleria();
     if (tab === 'cocina') cargarCocina();
     if (tab === 'atencion') cargarAtencion();
+    if (tab === 'vermesas') cargarVerMesas();
     if (tab === 'tiempos') cargarTiempos();
     if (tab === 'ingresos') abrirIngresos();
     if (tab === 'resumen') abrirResumen();
@@ -3406,6 +3416,114 @@ var qrcode = function() {
       document.getElementById('atencion-espera-titulo').style.display = hayEspera ? '' : 'none';
       if (!hayEspera) contEspera.innerHTML = '';
     }
+  }
+
+  // ---------- MESAS Y PEDIDOS (solo lectura, para los mozos) ----------
+  let vermesasFiltro = 'todas';          // todas | abiertas | disponibles
+  const vermesasAbiertas = new Set();    // mesas con el detalle desplegado
+  let vermesasDatos = { mesas: [], pedidos: {} };
+
+  const ESTADO_ITEM_MOZO = {
+    espera:    { t: '⏳ Para después',   color: 'var(--text-dim)' },
+    pendiente: { t: 'En preparación',    color: '#C68A4C' },
+    listo:     { t: '🔔 Listo para llevar', color: '#9CAE7C' },
+    entregado: { t: '✓ Entregado',       color: 'var(--text-dim)' },
+  };
+
+  async function cargarVerMesas(){
+    const grid = document.getElementById('vermesas-grid');
+    let mesas, pedidos = {};
+    try {
+      mesas = (await sbSelect('mesas_estado', 'select=mesa,estado,personas,mozo_email,pedido_activo_id&order=mesa.asc')) || [];
+      const ids = mesas.map(m => m.pedido_activo_id).filter(Boolean);
+      if (ids.length) {
+        const lista = (await sbSelect('pedidos', `select=id,mesa,items,total,creado_en&id=in.(${ids.join(',')})`)) || [];
+        lista.forEach(p => { pedidos[p.id] = p; });
+      }
+      if (!mozosCache.length) await cargarMozos();
+    } catch (err) {
+      grid.innerHTML = `<p class="empty">Error al cargar (${esc(err.message)}).</p>`;
+      return;
+    }
+    vermesasDatos = { mesas, pedidos };
+    dibujarVerMesas();
+  }
+
+  function mesaAbierta(m, pedidos){
+    const ped = m.pedido_activo_id ? pedidos[m.pedido_activo_id] : null;
+    return m.estado === 'ocupada' || !!(ped && (ped.items || []).length);
+  }
+
+  function dibujarVerMesas(){
+    const { mesas, pedidos } = vermesasDatos;
+    const grid = document.getElementById('vermesas-grid');
+    const filtros = document.getElementById('vermesas-filtros');
+    const abiertas = mesas.filter(m => mesaAbierta(m, pedidos));
+    const reservadas = mesas.filter(m => m.estado === 'reservada' && !mesaAbierta(m, pedidos));
+    const disponibles = mesas.filter(m => !mesaAbierta(m, pedidos) && m.estado !== 'reservada');
+
+    const btn = (id, texto) => `<button type="button" class="icon-btn vermesas-filtro" data-filtro="${id}" style="width:auto; padding:8px 14px; ${vermesasFiltro === id ? 'border-color:var(--copper); color:var(--copper); font-weight:600;' : ''}">${texto}</button>`;
+    filtros.innerHTML = btn('todas', `Todas (${mesas.length})`) + btn('abiertas', `Abiertas (${abiertas.length})`) + btn('disponibles', `Disponibles (${disponibles.length})`)
+      + (reservadas.length ? `<span style="color:var(--text-dim); font-size:0.85rem; margin-left:6px;">${reservadas.length} reservada${reservadas.length === 1 ? '' : 's'}</span>` : '');
+    filtros.querySelectorAll('.vermesas-filtro').forEach(b => b.addEventListener('click', () => { vermesasFiltro = b.dataset.filtro; dibujarVerMesas(); }));
+
+    const miEmail = (emailCuenta || '').toLowerCase();
+    const visibles = mesas.filter(m => {
+      const ab = mesaAbierta(m, pedidos);
+      if (vermesasFiltro === 'abiertas') return ab;
+      if (vermesasFiltro === 'disponibles') return !ab && m.estado !== 'reservada';
+      return true;
+    });
+    if (!visibles.length) { grid.innerHTML = `<p class="empty">No hay mesas para mostrar.</p>`; return; }
+
+    grid.innerHTML = visibles.map(m => {
+      const ped = m.pedido_activo_id ? pedidos[m.pedido_activo_id] : null;
+      const ab = mesaAbierta(m, pedidos);
+      const est = ab ? ESTILO_ESTADO.ocupada : (m.estado === 'reservada' ? ESTILO_ESTADO.reservada : ESTILO_ESTADO.disponible);
+      const etiqueta = ab ? 'Abierta' : (m.estado === 'reservada' ? 'Reservada' : 'Disponible');
+      const items = ped ? (ped.items || []) : [];
+      const cuentaEstado = e => items.filter(it => it.estado === e).length;
+      const listos = cuentaEstado('listo'), esperando = cuentaEstado('espera');
+      const mozo = (m.mozo_email || '').toLowerCase();
+      const abierta = vermesasAbiertas.has(m.mesa) && ab;
+      const lineaMozo = mozo ? (mozo === miEmail ? 'Tu mesa' : 'Mozo: ' + esc(nombreMozo(mozo))) : '';
+
+      const detalle = abierta ? `
+        <div style="margin-top:12px; border-top:1px solid ${est.borde}; padding-top:10px; font-size:0.9rem; color:var(--text);">
+          ${items.length ? items.map(it => {
+            const e = ESTADO_ITEM_MOZO[it.estado] || ESTADO_ITEM_MOZO.pendiente;
+            return `<div style="padding:7px 0; border-bottom:1px solid rgba(255,255,255,0.06);">
+              <div style="display:flex; justify-content:space-between; gap:10px;"><span>${esc(it.cantidad)}x ${esc(it.nombre)}</span><span style="color:var(--text-dim); font-variant-numeric:tabular-nums;">${horaDeItem(it, ped)}</span></div>
+              <div style="font-size:0.8rem; color:${e.color};">${e.t}</div>
+              ${it.nota ? `<div style="font-size:0.8rem; color:var(--text-dim);">“${esc(it.nota)}”</div>` : ''}
+            </div>`;
+          }).join('') : '<div style="color:var(--text-dim);">Todavía no pidieron nada.</div>'}
+          <div style="display:flex; justify-content:space-between; padding-top:10px; font-weight:600;"><span>Total pedido</span><span>${money(ped ? ped.total : 0)}</span></div>
+        </div>` : '';
+
+      return `
+        <div class="vermesa-card" data-mesa="${m.mesa}" style="${abierta ? 'grid-column:1 / -1;' : ''} border:1px solid ${est.borde}; background:${est.bg}; border-radius:8px; padding:14px; ${ab ? 'cursor:pointer;' : ''}">
+          <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px;">
+            <span style="font-family:'Fraunces',serif; font-size:1.2rem; color:var(--text); white-space:nowrap;">Mesa ${m.mesa}</span>
+            <span style="font-size:0.78rem; font-weight:600; color:${est.fg}; text-transform:uppercase; letter-spacing:0.03em;">${etiqueta}</span>
+          </div>
+          ${ab ? `<div style="font-size:0.88rem; margin-top:6px; color:var(--text);">${items.length} producto${items.length === 1 ? '' : 's'} · ${money(ped ? ped.total : 0)}</div>` : ''}
+          ${listos ? `<div style="font-size:0.82rem; margin-top:4px; color:#9CAE7C; font-weight:600;">🔔 ${listos} listo${listos === 1 ? '' : 's'} para llevar</div>` : ''}
+          ${esperando ? `<div style="font-size:0.82rem; margin-top:4px; color:var(--text-dim);">⏳ ${esperando} para después</div>` : ''}
+          ${m.personas && ab ? `<div style="font-size:0.8rem; margin-top:4px; color:var(--text-dim);">${m.personas} personas</div>` : ''}
+          ${lineaMozo ? `<div style="font-size:0.78rem; margin-top:4px; color:var(--text-dim);">${lineaMozo}</div>` : ''}
+          ${ab && !abierta ? `<div style="font-size:0.78rem; margin-top:8px; color:var(--text-dim);">Tocá para ver el pedido</div>` : ''}
+          ${detalle}
+        </div>`;
+    }).join('');
+
+    grid.querySelectorAll('.vermesa-card').forEach(card => card.addEventListener('click', () => {
+      const n = Number(card.dataset.mesa);
+      const m = mesas.find(x => x.mesa === n);
+      if (!m || !mesaAbierta(m, pedidos)) return;
+      if (vermesasAbiertas.has(n)) vermesasAbiertas.delete(n); else vermesasAbiertas.add(n);
+      dibujarVerMesas();
+    }));
   }
 
   // ---------- TIEMPOS ----------
@@ -6050,6 +6168,7 @@ var qrcode = function() {
       cargarCocteleria();
       cargarCocina();
       cargarAtencion();
+      if (document.getElementById('panel-vermesas').classList.contains('active')) cargarVerMesas();
     }, 8000);
   }
 </script>
