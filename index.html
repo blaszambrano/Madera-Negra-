@@ -556,8 +556,9 @@
   async function cargarCarta(){
     const el = document.getElementById('menu-grid');
     try {
-      const data = await sbSelect('menu_items', 'select=*&order=orden.asc');
-      if (!data || !data.length) { el.innerHTML = '<p>Todavía no hay carta cargada.</p>'; return; }
+      const todos = await sbSelect('menu_items', 'select=*&order=orden.asc');
+      const data = (todos || []).filter(it => it.visible !== false);   // los ocultos con el ojito no se muestran
+      if (!data.length) { el.innerHTML = '<p>Todavía no hay carta cargada.</p>'; return; }
 
       const categorias = {};
       data.forEach(item => {

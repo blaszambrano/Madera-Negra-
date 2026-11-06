@@ -77,6 +77,13 @@
     font-size:0.78rem; font-weight:600;
   }
   .cat-cuerpo[hidden]{ display:none; }
+  .inv-intro{ color:var(--text-dim); font-size:0.88rem; padding:4px 0 12px; }
+  .invitado{ padding:12px 0; border-top:1px solid var(--line); }
+  .invitado .inv-nombre{ font-size:1rem; }
+  .invitado .inv-tipo{ color:var(--copper); font-size:0.78rem; margin-left:8px; text-transform:uppercase; letter-spacing:0.04em; }
+  .inv-alias-fila{ display:flex; align-items:center; gap:10px; margin-top:8px; flex-wrap:wrap; }
+  .inv-alias{ font-family:ui-monospace, Menlo, Consolas, monospace; font-size:0.98rem; background:rgba(255,255,255,0.05); border:1px dashed var(--line); border-radius:4px; padding:7px 10px; word-break:break-all; user-select:all; }
+  .btn-copiar{ background:transparent; color:var(--copper); border:1px solid var(--copper); border-radius:4px; padding:7px 12px; font-size:0.85rem; font-weight:600; font-family:'Archivo', sans-serif; cursor:pointer; }
   .cat-cuerpo .item-row:last-child{ border-bottom:none; }
 
   .item-row{
@@ -304,6 +311,7 @@
   // (clave = id del ítem de la carta; en las promos, una clave propia por combinación de estilos)
   const carrito = {};
   let dataCarta = [];          // la carta tal como viene de la base
+  let dataInvitados = [];      // invitados de la noche visibles (con su alias)
   let firmaVisiblesActual = '';
 
   // ---- Horarios: la hora de Argentina es UTC-3 todo el año (no hay horario de verano) ----
@@ -318,6 +326,7 @@
   }
   // Un ítem sin horario se ve siempre. Con horario: desde (incluido) hasta (no incluido).
   function visibleAhora(it){
+    if (it.visible === false) return false;   // ojito apagado desde el panel
     const desde = aMinutos(it.visible_desde);
     const hasta = aMinutos(it.visible_hasta);
     if (desde === null && hasta === null) return true;
@@ -396,7 +405,7 @@
     const opciones = dataCarta.filter(i => i.elegible_promo_pintas && visibleAhora(i));
     const n = Number(promo.promo_pintas);
     const elegidas = {}; // id -> cantidad
-    const extras = dataCarta.filter(i => i.extra_promo_pintas);   // ej. papitas (opcional, con costo extra)
+    const extras = dataCarta.filter(i => i.extra_promo_pintas && i.visible !== false);   // ej. papitas (opcional, con costo extra)
     let extraElegido = null;                                       // id del extra elegido, o null = sin extra
     const caja = document.getElementById('modal-promo-caja');
 
@@ -514,7 +523,56 @@
 
   function firmaVisibles(){
     // Incluye el stock de TODO (también las pintas y papitas que solo se eligen dentro de una promo)
-    return dataCarta.map(i => i.id + (visibleEnCarta(i) ? 'v' : '') + (i.sin_stock ? 'x' : '')).join(',');
+    return dataCarta.map(i => i.id + (visibleEnCarta(i) ? 'v' : '') + (i.sin_stock ? 'x' : '')).join(',')
+      + '|' + dataInvitados.map(g => g.id + g.nombre + g.tipo + g.alias).join(',');
+  }
+
+  // Invitados de la noche (si todavía no existe la tabla, simplemente no se muestran)
+  async function refrescarInvitados(){
+    try {
+      const lista = (await sbSelect('invitados', 'select=*&visible=eq.true&order=orden.asc,creado_en.asc')) || [];
+      dataInvitados = lista.filter(g => String(g.alias || '').trim());
+    } catch (err) {
+      console.error('No se pudieron cargar los invitados', err);
+    }
+  }
+
+  async function copiarTexto(texto){
+    try {
+      if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(texto); return true; }
+    } catch (err) {}
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = texto; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, texto.length);
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return ok;
+    } catch (err) { return false; }
+  }
+
+  function invitadosHtml(){
+    if (!dataInvitados.length) return '';
+    const abierta = categoriasAbiertas.has('__invitados');
+    return `
+      <div class="cat-bloque">
+        <button type="button" class="cat-head${abierta ? ' abierta' : ''}" data-cat="__invitados" aria-expanded="${abierta}">
+          <span class="cat-txt">🎤 ${dataInvitados.length > 1 ? 'Invitados de la noche' : 'Invitado de la noche'}</span>
+          <span class="cat-badge"></span>
+          <span class="cat-flecha">▼</span>
+        </button>
+        <div class="cat-cuerpo"${abierta ? '' : ' hidden'}>
+          <p class="inv-intro">Si te gusta lo que hace, podés colaborar con una transferencia. Copiá el alias y mandalo desde tu app del banco o Mercado Pago. ¡Cualquier monto suma!</p>
+          ${dataInvitados.map(g => `
+            <div class="invitado">
+              <div class="inv-nombre">${escCuenta(g.nombre)}<span class="inv-tipo">${escCuenta(g.tipo)}</span></div>
+              <div class="inv-alias-fila">
+                <span class="inv-alias">${escCuenta(String(g.alias).trim())}</span>
+                <button type="button" class="btn-copiar" data-alias="${attrSeguro(String(g.alias).trim())}">Copiar alias</button>
+              </div>
+            </div>`).join('')}
+        </div>
+      </div>`;
   }
 
   function filaItemHtml(it){
@@ -612,6 +670,7 @@
 
     contenido.innerHTML = `
       <div class="aviso"><strong>Mesa ${mesa}</strong> — tocá una categoría para ver los productos, elegí lo que quieras y mandalo. Llega directo a la barra con tu número de mesa.</div>
+      ${invitadosHtml()}
       ${Object.keys(categorias).map(cat => {
         const abierta = categoriasAbiertas.has(cat);
         return `
@@ -627,6 +686,12 @@
         </div>`;
       }).join('')}
     `;
+
+    contenido.querySelectorAll('.btn-copiar').forEach(b => b.addEventListener('click', async () => {
+      const ok = await copiarTexto(b.getAttribute('data-alias'));
+      b.textContent = ok ? '✓ Copiado' : 'Copialo a mano';
+      setTimeout(() => { b.textContent = 'Copiar alias'; }, 2200);
+    }));
 
     contenido.querySelectorAll('.cat-head').forEach(head => {
       head.addEventListener('click', () => {
@@ -682,6 +747,7 @@
     } catch (err) {
       console.error('No se pudo actualizar la carta', err);
     }
+    await refrescarInvitados();
   }
 
   async function cargarCarta(){
@@ -700,6 +766,7 @@
 
     try {
       dataCarta = (await sbSelect('menu_items', 'select=*&order=orden.asc')) || [];
+      await refrescarInvitados();
       if (!dataCarta.length) {
         contenido.innerHTML = `<div class="estado-msg"><h2>La carta no está disponible ahora</h2><p>Avisale a un mozo para pedir.</p></div>`;
         return;
