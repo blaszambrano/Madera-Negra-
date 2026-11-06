@@ -227,6 +227,13 @@
       <div class="section-head">
         <div><h2>Invitado de la noche</h2><p>DJ, cantantes o bandas que pasan por el bar. En la carta del QR se ve su alias para que la gente lo copie y les mande una colaboración. Con el ojito lo mostrás (verde) o lo ocultás (rojo).</p></div>
       </div>
+      <div style="border:1px solid var(--line); border-radius:6px; padding:14px 16px; margin-bottom:16px;">
+        <div style="font-weight:600; margin-bottom:4px;">Texto que ve el cliente arriba de los invitados</div>
+        <div style="color:var(--text-dim); font-size:0.85rem; margin-bottom:10px;">Dejá un campo vacío si no querés mostrarlo. Se guarda solo al salir del campo.</div>
+        <input type="text" id="inv-texto-titulo" placeholder="Título (ej: Colaboración a los invitados · ¡a la gorra!)" style="width:100%; margin-bottom:8px;">
+        <textarea id="inv-texto-mensaje" rows="3" placeholder="Mensaje" style="width:100%; resize:vertical;"></textarea>
+        <div id="inv-texto-estado" style="font-size:0.8rem; color:var(--text-dim); min-height:18px; margin-top:4px;"></div>
+      </div>
       <div id="invitados-list"><p class="empty">Cargando…</p></div>
       <div class="add-form">
         <input type="text" id="nuevo-inv-nombre" placeholder="Nombre (ej: DJ Mati)">
@@ -6066,11 +6073,38 @@ var qrcode = function() {
       title="${visible ? 'Se ve en la carta. Tocá para ocultarlo.' : 'Oculto en la carta. Tocá para mostrarlo.'}">${ojoSvg(visible)}</button>`;
   }
 
+  // Texto editable de la sección "Invitado de la noche" (tabla ajustes_carta)
+  const CAMPOS_TEXTO_INV = [['inv-texto-titulo', 'invitados_titulo'], ['inv-texto-mensaje', 'invitados_mensaje']];
+  async function cargarTextoInvitados(){
+    try {
+      const filas = (await sbSelect('ajustes_carta', 'select=id,valor&id=in.(invitados_titulo,invitados_mensaje)')) || [];
+      CAMPOS_TEXTO_INV.forEach(([elId, clave]) => {
+        const el = document.getElementById(elId);
+        const fila = filas.find(f => f.id === clave);
+        if (fila && document.activeElement !== el) el.value = fila.valor;
+      });
+    } catch (err) {
+      document.getElementById('inv-texto-estado').textContent = 'No se pudo cargar el texto. ¿Ya corriste el SQL del texto de invitados?';
+    }
+  }
+  CAMPOS_TEXTO_INV.forEach(([elId, clave]) => {
+    document.getElementById(elId).addEventListener('change', async () => {
+      const estado = document.getElementById('inv-texto-estado');
+      try {
+        await sbUpdate('ajustes_carta', clave, { valor: document.getElementById(elId).value.trim(), actualizado_en: new Date().toISOString() });
+        estado.textContent = '✓ Guardado. Los clientes lo ven en menos de un minuto.';
+      } catch (err) {
+        estado.textContent = 'No se pudo guardar: ' + err.message + '. ¿Ya corriste el SQL del texto de invitados?';
+      }
+    });
+  });
+
   let invitadosCache = [];
   const TIPOS_INVITADO = ['DJ', 'Cantante', 'Banda', 'Otro'];
 
   async function cargarInvitados(forzar){
     const cont = document.getElementById('invitados-list');
+    cargarTextoInvitados();
     let data;
     try {
       data = await sbSelect('invitados', 'select=*&order=orden.asc,creado_en.asc');

@@ -77,7 +77,8 @@
     font-size:0.78rem; font-weight:600;
   }
   .cat-cuerpo[hidden]{ display:none; }
-  .inv-intro{ color:var(--text-dim); font-size:0.88rem; padding:4px 0 12px; }
+  .inv-titulo{ font-family:'Fraunces', serif; font-style:italic; color:var(--copper); font-size:1.1rem; padding:6px 0 4px; }
+  .inv-intro{ color:var(--text-dim); font-size:0.88rem; padding:4px 0 12px; white-space:pre-line; }
   .invitado{ padding:12px 0; border-top:1px solid var(--line); }
   .invitado .inv-nombre{ font-size:1rem; }
   .invitado .inv-tipo{ color:var(--copper); font-size:0.78rem; margin-left:8px; text-transform:uppercase; letter-spacing:0.04em; }
@@ -312,6 +313,7 @@
   const carrito = {};
   let dataCarta = [];          // la carta tal como viene de la base
   let dataInvitados = [];      // invitados de la noche visibles (con su alias)
+  let textoInvitados = { titulo: 'Colaboración a los invitados · ¡a la gorra!', mensaje: 'Si te gusta lo que hacen, podés colaborar con una transferencia. Copiá el alias y mandalo desde tu app del banco o Mercado Pago. ¡Cualquier monto suma!' };   // se editan desde el panel
   let firmaVisiblesActual = '';
 
   // ---- Horarios: la hora de Argentina es UTC-3 todo el año (no hay horario de verano) ----
@@ -524,7 +526,8 @@
   function firmaVisibles(){
     // Incluye el stock de TODO (también las pintas y papitas que solo se eligen dentro de una promo)
     return dataCarta.map(i => i.id + (visibleEnCarta(i) ? 'v' : '') + (i.sin_stock ? 'x' : '')).join(',')
-      + '|' + dataInvitados.map(g => g.id + g.nombre + g.tipo + g.alias).join(',');
+      + '|' + dataInvitados.map(g => g.id + g.nombre + g.tipo + g.alias).join(',')
+      + '|' + textoInvitados.titulo + '|' + textoInvitados.mensaje;
   }
 
   // Invitados de la noche (si todavía no existe la tabla, simplemente no se muestran)
@@ -534,6 +537,16 @@
       dataInvitados = lista.filter(g => String(g.alias || '').trim());
     } catch (err) {
       console.error('No se pudieron cargar los invitados', err);
+    }
+    // Textos editables de la sección (si no están cargados, queda el texto de siempre; si se dejan vacíos, no se muestran)
+    try {
+      const filas = (await sbSelect('ajustes_carta', 'select=id,valor&id=in.(invitados_titulo,invitados_mensaje)')) || [];
+      filas.forEach(f => {
+        if (f.id === 'invitados_titulo') textoInvitados.titulo = String(f.valor || '').trim();
+        if (f.id === 'invitados_mensaje') textoInvitados.mensaje = String(f.valor || '').trim();
+      });
+    } catch (err) {
+      console.error('No se pudieron cargar los textos de invitados', err);
     }
   }
 
@@ -562,7 +575,8 @@
           <span class="cat-flecha">▼</span>
         </button>
         <div class="cat-cuerpo"${abierta ? '' : ' hidden'}>
-          <p class="inv-intro">Si te gusta lo que hace, podés colaborar con una transferencia. Copiá el alias y mandalo desde tu app del banco o Mercado Pago. ¡Cualquier monto suma!</p>
+          ${textoInvitados.titulo ? `<div class="inv-titulo">${escCuenta(textoInvitados.titulo)}</div>` : ''}
+          ${textoInvitados.mensaje ? `<p class="inv-intro">${escCuenta(textoInvitados.mensaje)}</p>` : ''}
           ${dataInvitados.map(g => `
             <div class="invitado">
               <div class="inv-nombre">${escCuenta(g.nombre)}<span class="inv-tipo">${escCuenta(g.tipo)}</span></div>
