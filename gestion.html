@@ -5328,8 +5328,10 @@ var qrcode = function() {
       const cant = Number(it.cantidad) || 0;
       const precio = Number(it.precio) || 0;
       let unidades = cant, plata = cant * precio;
-      const pieza = nombre.match(/^Pinta .+ \(de (.+)\)$/);
-      const base = pieza ? pieza[1] : (it.promo_base || null);
+      // Productos con opciones ("Burger Madera Negra (Doble, Cheddar)"): se cuentan como el producto de la carta
+      if (it.producto) nombre = String(it.producto).trim() || nombre;
+      const pieza = it.producto ? null : nombre.match(/^Pinta .+ \(de (.+)\)$/);
+      const base = it.producto ? null : (pieza ? pieza[1] : (it.promo_base || null));
       if (base) {
         nombre = base;
         const unit = precioMenu[base] || 0;

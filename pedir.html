@@ -26,7 +26,7 @@
     color:var(--text);
     font-family:'Archivo', sans-serif;
     -webkit-font-smoothing:antialiased;
-    padding-bottom:120px;
+    padding-bottom:40px;
   }
   h1,h2,h3{ font-family:'Fraunces', serif; font-weight:500; margin:0; }
   .wrap{ max-width:640px; margin:0 auto; padding:0 20px; }
@@ -209,6 +209,29 @@
   .btn-cancelar{ background:transparent; color:var(--text); border:1px solid var(--line); }
   .btn-confirmar{ background:var(--copper); color:#1A130D; border:none; }
   .btn-confirmar:disabled{ opacity:0.4; }
+  /* Productos con opciones (hamburguesas): tamaño, extras, aderezos, quesos... */
+  .opc-grupo{ margin-top:20px; }
+  .opc-titulo{ display:flex; align-items:center; justify-content:space-between; gap:10px; font-size:1.02rem; font-weight:600; }
+  .opc-oblig{ color:var(--copper); font-size:0.72rem; font-weight:600; border:1px solid var(--copper); border-radius:20px; padding:2px 9px; white-space:nowrap; }
+  .opc-ayuda{ color:var(--text-dim); font-size:0.8rem; margin:3px 0 4px; }
+  .opc-fila{
+    display:flex; align-items:center; gap:12px; width:100%; background:transparent; border:none;
+    border-bottom:1px solid var(--line); color:var(--text); padding:12px 2px;
+    font-family:'Archivo', sans-serif; font-size:0.95rem; text-align:left; cursor:pointer;
+  }
+  .opc-fila .marca{
+    width:20px; height:20px; border:1.5px solid var(--text-dim); border-radius:4px; flex:none;
+    display:inline-flex; align-items:center; justify-content:center; font-size:0.72rem; font-weight:700;
+  }
+  .opc-fila.radio .marca{ border-radius:50%; }
+  .opc-fila.sel .marca{ border-color:var(--copper); background:var(--copper); color:#1A130D; }
+  .opc-fila .nom{ flex:1; }
+  .opc-fila .pre{ color:var(--text-dim); white-space:nowrap; font-size:0.88rem; }
+  .opc-fila:disabled{ opacity:0.45; cursor:not-allowed; }
+  .opc-cant{ display:flex; align-items:center; gap:12px; padding:9px 2px; border-bottom:1px solid var(--line); font-size:0.95rem; }
+  .opc-cant .nom{ flex:1; }
+  .opc-cant .pre{ color:var(--text-dim); white-space:nowrap; font-size:0.88rem; }
+  .modal-acciones.pegado{ position:sticky; bottom:-26px; background:var(--panel-2); padding:14px 0 0; margin-top:18px; }
 </style>
 </head>
 <body>
@@ -251,6 +274,10 @@
 
 <div class="modal-fondo" id="modal-promo">
   <div class="modal-caja" id="modal-promo-caja"></div>
+</div>
+
+<div class="modal-fondo" id="modal-opc">
+  <div class="modal-caja" id="modal-opc-caja"></div>
 </div>
 
 <script>
@@ -358,8 +385,19 @@
     const total = Object.values(carrito).reduce((a, it) => a + it.cantidad * (it.precio + (it.extraPrecio || 0)), 0);
     totalMontoEl.textContent = money(total);
     barFija.style.display = cantidadTotal > 0 ? 'flex' : 'none';
+    ajustarEspacioBarra();
     actualizarBadgesCategorias();
   }
+
+  // La barra de abajo (aclaración + WhatsApp + total) es fija y mide bastante: se le deja a la página
+  // exactamente ese espacio extra, así se puede bajar hasta el final de la carta sin que se tape nada.
+  function ajustarEspacioBarra(){
+    const visible = barFija.style.display !== 'none';
+    const alto = visible ? barFija.offsetHeight : 0;
+    document.body.style.paddingBottom = (alto + 24) + 'px';
+  }
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(ajustarEspacioBarra).observe(barFija);
+  window.addEventListener('resize', ajustarEspacioBarra);
 
   // ---- "Ya" / "Después": cuándo quiere el cliente cada producto ----
   function textoChip(clave){
@@ -502,6 +540,136 @@
     document.getElementById('modal-promo').classList.add('abierto');
   }
 
+  // ---- Productos con opciones (ej. hamburguesas): el cliente arma el producto ----
+  // La carta guarda las opciones del producto en menu_items.opciones (lista de grupos):
+  //   { id, titulo, ayuda, tipo: 'uno' | 'multi' | 'cantidad', obligatorio, gratis,
+  //     opciones: [{ nombre, precio, texto?, agotado? }] }
+  // "gratis" = cuántas de las elecciones del grupo salen sin cargo (las más baratas).
+  function tieneOpciones(it){ return Array.isArray(it.opciones) && it.opciones.length > 0; }
+
+  function cerrarModalOpciones(){
+    document.getElementById('modal-opc').classList.remove('abierto');
+  }
+
+  // sel: { idGrupo: { numeroDeOpcion: cantidad } }  ->  { extra, detalle }
+  function calcularOpciones(item, sel){
+    let extra = 0;
+    const partes = [];
+    item.opciones.forEach(g => {
+      const elegidas = sel[g.id] || {};
+      const unidades = [];
+      g.opciones.forEach((o, i) => {
+        const n = elegidas[i] || 0;
+        if (n <= 0) return;
+        for (let k = 0; k < n; k++) unidades.push(Number(o.precio) || 0);
+        partes.push((n > 1 ? n + ' ' : '') + (o.texto || o.nombre));
+      });
+      let libres = Number(g.gratis) || 0;
+      unidades.sort((a, b) => a - b).forEach(pr => { if (libres > 0) libres--; else extra += pr; });
+    });
+    return { extra, detalle: partes.join(', ') };
+  }
+
+  function abrirModalOpciones(item){
+    const caja = document.getElementById('modal-opc-caja');
+    const base = Number(item.precio) || 0;
+    const sel = {};
+    item.opciones.forEach(g => {
+      sel[g.id] = {};
+      if (g.tipo === 'uno' && g.obligatorio) {
+        const i = g.opciones.findIndex(o => !o.agotado);
+        if (i >= 0) sel[g.id][i] = 1;
+      }
+    });
+
+    function dibujar(){
+      const scrollPrevio = caja.scrollTop;
+      const { extra, detalle } = calcularOpciones(item, sel);
+      const faltan = item.opciones.filter(g => g.obligatorio && !Object.keys(sel[g.id]).length);
+      caja.innerHTML = `
+        <h3>${attrSeguro(item.nombre)}</h3>
+        <p class="sub">${money(base)} el básico · armalo a tu gusto</p>
+        ${item.opciones.map(g => `
+          <div class="opc-grupo">
+            <div class="opc-titulo"><span>${attrSeguro(g.titulo)}</span>${g.obligatorio ? '<span class="opc-oblig">Obligatorio</span>' : ''}</div>
+            ${g.ayuda ? `<div class="opc-ayuda">${attrSeguro(g.ayuda)}</div>` : ''}
+            ${g.opciones.map((o, i) => {
+              const precio = Number(o.precio) || 0;
+              const etiqueta = o.agotado ? 'Sin stock' : (precio > 0 ? '+' + money(precio) : (g.tipo === 'uno' ? '' : 'Gratis'));
+              if (g.tipo === 'cantidad') {
+                const n = sel[g.id][i] || 0;
+                return `
+                <div class="opc-cant">
+                  <span class="nom">${attrSeguro(o.nombre)}</span>
+                  <span class="pre">${etiqueta}</span>
+                  ${o.agotado ? '' : `<div class="qty">
+                    <button type="button" data-g="${attrSeguro(g.id)}" data-i="${i}" data-delta="-1" aria-label="Quitar uno">−</button>
+                    <span>${n}</span>
+                    <button type="button" data-g="${attrSeguro(g.id)}" data-i="${i}" data-delta="1" aria-label="Agregar uno">+</button>
+                  </div>`}
+                </div>`;
+              }
+              const on = !!sel[g.id][i];
+              return `
+              <button type="button" class="opc-fila${g.tipo === 'uno' ? ' radio' : ''}${on ? ' sel' : ''}" data-g="${attrSeguro(g.id)}" data-i="${i}" ${o.agotado ? 'disabled' : ''}>
+                <span class="marca">${on && g.tipo !== 'uno' ? '✓' : ''}</span>
+                <span class="nom">${attrSeguro(o.nombre)}</span>
+                <span class="pre">${etiqueta}</span>
+              </button>`;
+            }).join('')}
+          </div>`).join('')}
+        <div class="modal-acciones pegado">
+          <button type="button" class="btn-cancelar" id="opc-cancelar">Cancelar</button>
+          <button type="button" class="btn-confirmar" id="opc-confirmar" ${faltan.length ? 'disabled' : ''}>${faltan.length ? 'Elegí ' + attrSeguro(faltan[0].titulo.toLowerCase()) : 'Agregar · ' + money(base + extra)}</button>
+        </div>`;
+      caja.scrollTop = scrollPrevio;
+
+      caja.querySelectorAll('.opc-fila').forEach(btn => btn.addEventListener('click', () => {
+        const g = item.opciones.find(x => String(x.id) === btn.getAttribute('data-g'));
+        const i = parseInt(btn.getAttribute('data-i'), 10);
+        const actual = sel[g.id];
+        if (g.tipo === 'uno') {
+          if (actual[i] && !g.obligatorio) delete actual[i];
+          else { Object.keys(actual).forEach(k => delete actual[k]); actual[i] = 1; }
+        } else if (actual[i]) delete actual[i];
+        else actual[i] = 1;
+        dibujar();
+      }));
+      caja.querySelectorAll('.opc-cant .qty button').forEach(btn => btn.addEventListener('click', () => {
+        const g = item.opciones.find(x => String(x.id) === btn.getAttribute('data-g'));
+        const i = parseInt(btn.getAttribute('data-i'), 10);
+        const nueva = Math.max(0, (sel[g.id][i] || 0) + parseInt(btn.getAttribute('data-delta'), 10));
+        if (nueva === 0) delete sel[g.id][i]; else sel[g.id][i] = nueva;
+        dibujar();
+      }));
+      document.getElementById('opc-cancelar').addEventListener('click', cerrarModalOpciones);
+      document.getElementById('opc-confirmar').addEventListener('click', () => {
+        if (faltan.length) return;
+        const firma = item.opciones.map(g => g.id + ':' + Object.keys(sel[g.id]).sort().map(i => i + 'x' + sel[g.id][i]).join('.')).join('|');
+        const clave = `opc-${item.id}-${firma}`;
+        if (carrito[clave]) {
+          carrito[clave].cantidad += 1;
+        } else {
+          carrito[clave] = {
+            nombre: detalle ? `${item.nombre} (${detalle})` : item.nombre,
+            precio: base + extra,
+            cantidad: 1,
+            detalle,
+            producto: item.nombre,     // la base lo usa para mandarlo a cocina o a la barra
+            _promoId: item.id,         // así cuenta en su categoría y se saca si se agota
+          };
+        }
+        cerrarModalOpciones();
+        renderCarta();
+        actualizarBarra();
+      });
+    }
+
+    dibujar();
+    document.getElementById('modal-opc').classList.add('abierto');
+  }
+  document.getElementById('modal-opc').addEventListener('click', e => { if (e.target.id === 'modal-opc') cerrarModalOpciones(); });
+
   // Saca del carrito lo que ya no está disponible (por ejemplo, una promo que terminó a las 22:00)
   function limpiarCarritoNoVisibles(){
     let sacoAlgo = false;
@@ -591,6 +759,30 @@
 
   function filaItemHtml(it){
     const desc = it.descripcion ? `<div class="item-desc">${it.descripcion}</div>` : '';
+    if (tieneOpciones(it)) {
+      const combos = Object.entries(carrito).filter(([, e]) => String(e._promoId) === String(it.id));
+      return `
+        <div class="item-row${it.sin_stock ? ' agotado' : ''}" style="flex-wrap:wrap;">
+          <div class="item-info">
+            <div class="item-name">${it.nombre}</div>
+            ${desc}
+            <div class="item-price">Desde ${money(it.precio)}</div>
+          </div>
+          ${it.sin_stock
+            ? '<span class="sin-stock-tag">Sin stock</span>'
+            : `<button type="button" class="btn-elegir" data-opc="${it.id}">Armar</button>`}
+          ${combos.map(([clave, e]) => `
+            <div class="promo-linea" style="flex-basis:100%;">
+              <span class="detalle">${attrSeguro(e.detalle)} · ${money(e.precio)}</span>
+              <button type="button" class="chip-cuando${e.despues ? ' despues' : ''}" style="display:inline-block; margin-top:0;" data-cuando="${attrSeguro(clave)}">${textoChip(clave)}</button>
+              <div class="qty">
+                <button type="button" data-combo="${attrSeguro(clave)}" data-delta="-1" aria-label="Quitar una">−</button>
+                <span>${e.cantidad}</span>
+                <button type="button" data-combo="${attrSeguro(clave)}" data-delta="1" aria-label="Agregar una más">+</button>
+              </div>
+            </div>`).join('')}
+        </div>`;
+    }
     if (it.promo_pintas) {
       const combos = Object.entries(carrito).filter(([, e]) => String(e._promoId) === String(it.id));
       return `
@@ -735,6 +927,12 @@
       btn.addEventListener('click', () => {
         const promo = dataCarta.find(d => String(d.id) === btn.getAttribute('data-promo'));
         if (promo) abrirModalPromo(promo);
+      });
+    });
+    contenido.querySelectorAll('.btn-elegir[data-opc]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const it = dataCarta.find(d => String(d.id) === btn.getAttribute('data-opc'));
+        if (it) abrirModalOpciones(it);
       });
     });
     contenido.querySelectorAll('button[data-combo]').forEach(btn => {
@@ -946,6 +1144,7 @@
     Object.values(carrito).forEach(e => {
       const linea = { nombre: e.nombre, precio: e.precio, cantidad: e.cantidad };
       if (e.barra) linea.barra = e.barra;
+      if (e.producto) linea.producto = e.producto;
       if (e.despues) linea.espera = true;   // queda en espera hasta que el mozo lo largue
       items.push(linea);
       if (e.extraNombre) {
